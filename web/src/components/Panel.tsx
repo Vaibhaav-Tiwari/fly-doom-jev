@@ -1,0 +1,2 @@
+import type {ReactNode} from 'react';
+export default function Panel({title,kicker,tools,children,className=''}:{title:string;kicker?:string;tools?:ReactNode;children:ReactNode;className?:string}){return <section className={`panel ${className}`}><header className="panel-head"><div>{kicker&&<span className="kicker">{kicker}</span>}<h2>{title}</h2></div>{tools&&<div className="panel-tools">{tools}</div>}</header>{children}</section>}
