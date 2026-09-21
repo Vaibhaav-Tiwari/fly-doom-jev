@@ -20,11 +20,17 @@ import logging
 import numpy as np
 
 from flydoom.jev.client import JevDecision
-from flydoom.malecns.graph import MOTOR_POPULATION, POPULATIONS, ReducedConnectome
+from flydoom.malecns.graph import MOTOR_POPULATION
 
 log = logging.getLogger(__name__)
 
-ALLOWED_TARGETS = frozenset(p for p in POPULATIONS if p != MOTOR_POPULATION)
+
+def _population_names(connectome) -> list[str]:
+    from flydoom.malecns.full import COARSE_POPULATIONS, FullConnectome
+    from flydoom.malecns.graph import POPULATIONS
+    if isinstance(connectome, FullConnectome):
+        return list(COARSE_POPULATIONS)
+    return list(POPULATIONS)
 
 
 class MotorInjectionError(ValueError):
@@ -33,7 +39,7 @@ class MotorInjectionError(ValueError):
 
 
 class JevBridge:
-    def __init__(self, connectome: ReducedConnectome, mappings: dict[str, str],
+    def __init__(self, connectome, mappings: dict[str, str],
                  gain: float = 30.0):
         self.connectome = connectome
         self.gain = float(gain)
@@ -51,9 +57,8 @@ class JevBridge:
             for question, sl in zip(questions, slices):
                 self._slices[question] = sl
 
-    @staticmethod
-    def _validate(question: str, population: str) -> None:
-        if population not in POPULATIONS:
+    def _validate(self, question: str, population: str) -> None:
+        if population not in _population_names(self.connectome):
             raise ValueError(f"unknown population {population!r} for question {question!r}")
         if population == MOTOR_POPULATION:
             raise MotorInjectionError(

@@ -1,33 +1,39 @@
 import numpy as np
 
-from flydoom.motor import MotorDecoder
+from flydoom.motor.decoder import BankDecoder
+
+ACTIONS = ["forward", "turn_left", "turn_right", "attack", "noop"]
+
+
+def _full_rates(conn, motor_rates):
+    full = np.zeros(conn.n_neurons, dtype=np.float32)
+    full[conn.population_indices("descending_neuron")] = motor_rates
+    return full
 
 
 def test_decoder_selects_most_active_bank(fixture_connectome):
-    actions = ["forward", "turn_left", "turn_right", "attack", "noop"]
-    dec = MotorDecoder(fixture_connectome, actions, threshold=0.01)
-    rates = np.zeros(fixture_connectome.population_sizes()["descending_neuron"],
-                     dtype=np.float32)
-    bank_pos = dec._bank_positions("attack")
-    rates[bank_pos] = 50.0
-    out = dec.decode(rates)
+    dec = BankDecoder(fixture_connectome, ACTIONS, threshold=0.01)
+    n_motor = fixture_connectome.population_sizes()["descending_neuron"]
+    rates = np.zeros(n_motor, dtype=np.float32)
+    bank = dec.banks["attack"]
+    pos = np.searchsorted(dec.motor_indices, bank)
+    rates[pos] = 50.0
+    out = dec.decode(_full_rates(fixture_connectome, rates))
     assert out["selected"] == "attack"
     assert out["confidence"] > 0.9
     assert out["scores"]["attack"] == max(out["scores"].values())
 
 
 def test_decoder_noop_below_threshold(fixture_connectome):
-    actions = ["forward", "turn_left", "turn_right", "attack", "noop"]
-    dec = MotorDecoder(fixture_connectome, actions, threshold=1.0)
-    out = dec.decode(np.full(48, 0.1, dtype=np.float32))  # uniform: no contrast
+    dec = BankDecoder(fixture_connectome, ACTIONS, threshold=1.0)
+    out = dec.decode(_full_rates(fixture_connectome, np.full(48, 0.1, dtype=np.float32)))
     assert out["selected"] == "noop"
     assert out["scores"]["noop"] == 1.0
 
 
-def test_decoder_exposes_contributing_neurons(fixture_connectome):
-    actions = ["forward", "turn_left", "turn_right", "attack", "noop"]
-    dec = MotorDecoder(fixture_connectome, actions)
-    banks = [set(dec.contributing_neurons(a)) for a in actions if a != "noop"]
+def test_decoder_banks_disjoint(fixture_connectome):
+    dec = BankDecoder(fixture_connectome, ACTIONS)
+    banks = [set(map(int, b)) for a, b in dec.banks.items()]
     assert all(banks)
     total = set().union(*banks)
-    assert len(total) == sum(len(b) for b in banks)  # disjoint banks
+    assert len(total) == sum(len(b) for b in banks)

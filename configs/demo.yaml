@@ -1,44 +1,46 @@
-# V1 demo configuration. Everything the v1 closed loop needs; nothing more.
+# Demo configuration — full MaleCNS v1.0 connectome, real ViZDoom, mock Jev.
 seed: 42
 
 environment:
   backend: vizdoom            # vizdoom | fixture (fixture = deterministic test env, clearly labeled)
-  scenario: basic
-  frame_skip: 4               # game tics per controller step (35 tps / 4 ~= 8.75 controller steps/s)
-  screen_resolution: RES_160X120
-  screen_format: GRAY8
-  max_controller_steps: 175   # ~20s episode
-  realtime: true              # pace controller to ~8.75 steps/s so Jev cadence matters
+  scenario: defend_the_center # turret defense: turn + attack; enemies approach
+  frame_skip: 4               # game tics per controller step (35 tps / 4 ~= 8.75 steps/s)
+  screen_resolution: RES_320X240
+  screen_format: RGB24
+  max_episode_tics: 2100      # 60s at 35 tps
+  max_controller_steps: 260   # ~30s cap
+  realtime: true              # pace controller so Jev cadence and timeline are real
 
 neural:
-  # reduced mode: a REAL MaleCNS v1.0 subset if data/raw/malecns-v1.0 is present,
-  # otherwise a clearly-labeled deterministic fixture graph through the same interface.
-  mode: auto                  # auto | reduced | fixture
-  timestep_ms: 2.0
-  steps_per_controller_step: 16
+  mode: full                  # full (default, real MaleCNS) | reduced | fixture | auto
+  timestep_ms: 1.0
+  steps_per_controller_step: 32   # 32ms of neural time per controller step
   data_dir: data/raw/malecns-v1.0
   manifest: data/manifests/malecns-v1.0.manifest.json
-  cache: data/processed/malecns_reduced_v1.npz
-  reduced:
-    visual_projection: 800
-    ol_intrinsic: 1500
-    cx_intrinsic: 800         # class == 'CX' within cb_intrinsic
-    descending_neuron: 1314   # all descending neurons (motor/readout population)
-    seed: 42
+  cache_full: data/processed/malecns_full_v1
+  cache: data/processed/malecns_reduced_v1.npz   # reduced-mode cache (dev only)
+  engine:
+    syn_gain: 0.3             # synaptic efficacy scale on raw signed synapse counts
+    tau_v_ms: 20.0
+    tau_syn_ms: 5.0
+    syn_delay_ms: 2.0
+    rate_tau_ms: 100.0
 
 vision:
-  retina_size: [16, 12]       # downsampled retinal representation (cols, rows)
-  gain: 10.0                  # sensory drive scale
+  pathway: photoreceptor      # photoreceptor (full graph) | mosaic (fixture fallback)
+  gain: 30.0                  # photoreceptor drive scale (Naka-Rushton)
+  lamina_bias: 8.0            # tonic current on lamina interneurons (spiking proxy)
+  retina_size: [16, 12]       # mosaic fallback only
 
 jev:
-  mode: mock                  # v1: mock only; live API behind JevClient interface stub
-  cadence_hz: 3.0             # 2-5 Hz per v1 scope
-  # stale decision semantics: last valid decision stays active until a new one arrives.
+  mode: mock                  # mock | live (live = thin stub, needs JEV_API_KEY)
+  cadence_hz: 3.0             # decisions/sec; game/neural loop never blocks on Jev
+  # stale decision semantics: last valid decision stays active until a new one arrives
 
 bridge:
-  gain: 30.0
-  # Jev question -> upstream/intermediate population. Motor/readout populations are
-  # rejected by the bridge guard (see flydoom/integration/bridge.py).
+  gain: 12.0
+  # Jev question -> upstream/intermediate population. Motor/readout populations
+  # (descending_neuron) are rejected by the bridge guard.
   mappings:
     ATTACK: visual_projection
     RETREAT: ol_intrinsic
@@ -46,17 +48,23 @@ bridge:
     THREAT_LEVEL: visual_projection
 
 motor:
-  source_population: descending_neuron
-  actions: [forward, turn_left, turn_right, attack, noop]
-  window_ms: 20.0
-  threshold: 0.02
+  decoder: typed_dn           # typed_dn (full graph) | population_bank (fallback)
+  actions: [turn_left, turn_right, attack, noop]   # defend_the_center buttons + noop
+  turn_gain: 6.0
+  forward_gain: 0.3
+  attack_gain: 1.0
+  turn_min: 0.5
+  forward_min: 0.2
+  attack_threshold: 5.0       # Hz on the attack readout channel
+  threshold: 0.02             # population_bank fallback only
 
 telemetry:
-  population_sample: 32       # neurons sampled per population for activity summaries
+  population_sample: 32       # neurons sampled per population for summaries
 
 recording:
   directory: outputs/recordings
-  record_frames: true         # downsampled grayscale frames for browser replay
+  record_frames: true         # JPEG frames for browser replay
+  jpeg_quality: 80
 
 api:
   host: 127.0.0.1

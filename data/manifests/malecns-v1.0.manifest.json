@@ -27,5 +27,6 @@
       "required": false,
       "size_bytes": 43282834
     }
-  }
+  },
+  "directory": "data/raw/malecns-v1.0"
 }

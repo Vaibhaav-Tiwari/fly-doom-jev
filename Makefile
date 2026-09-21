@@ -10,9 +10,16 @@ setup:
 	$(UV) venv --python 3.14 .venv || $(UV) venv .venv
 	$(UV) pip install --python $(PY) -e ".[dev]"
 
-# Record a short closed-loop episode -> outputs/recordings/<run_id>/recording.jsonl
+# Record a closed-loop episode -> outputs/recordings/<run_id>/
 run-demo:
 	$(PY) -m flydoom.experiments.runner --config configs/demo.yaml
+
+# Verify MaleCNS raw files against the pinned sha256 manifest
+verify-data:
+	$(PY) -m flydoom.malecns.download --manifest data/manifests/malecns-v1.0.manifest.json --verify-only
+
+download-data:
+	$(PY) -m flydoom.malecns.download --manifest data/manifests/malecns-v1.0.manifest.json
 
 # Serve the latest recording + replay dashboard at http://127.0.0.1:8420
 replay:

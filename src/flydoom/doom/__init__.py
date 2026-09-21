@@ -8,9 +8,11 @@ Both expose the same interface::
     backend_name -> str
     close()
 
+Frames are RGB uint8 (H, W, 3) in both backends.
+
 The fixture is deterministic (seeded), clearly labeled ``fixture``, and exists
-so tests and machines without a display/doom binary can still exercise the
-closed loop. It is never presented as real ViZDoom validation.
+so tests can exercise the loop without a DOOM binary. It is never presented as
+real ViZDoom validation.
 """
 
 from .base import Observation, StepResult

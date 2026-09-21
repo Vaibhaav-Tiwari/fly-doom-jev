@@ -8,13 +8,13 @@ import os
 
 import numpy as np
 
-from .base import ACTIONS, Observation, StepResult
+from .base import SCENARIOS, Observation, StepResult
 
 log = logging.getLogger(__name__)
 
 
 class VizDoomEnv:
-    """Real ViZDoom 'basic' scenario wrapped behind the common interface."""
+    """Real ViZDoom wrapped behind the common interface (RGB frames)."""
 
     backend_name = "vizdoom"
 
@@ -22,29 +22,35 @@ class VizDoomEnv:
         import vizdoom as vzd
 
         env_cfg = cfg["environment"]
-        self._vzd = vzd
+        self.scenario = env_cfg.get("scenario", "defend_the_center")
+        if self.scenario not in SCENARIOS:
+            raise ValueError(f"unknown scenario {self.scenario!r}; "
+                             f"supported: {sorted(SCENARIOS)}")
+        buttons, actions = SCENARIOS[self.scenario]
         g = vzd.DoomGame()
         scen_dir = os.path.join(os.path.dirname(vzd.__file__), "scenarios")
-        g.set_doom_scenario_path(os.path.join(scen_dir, env_cfg.get("scenario", "basic") + ".wad"))
+        g.set_doom_scenario_path(os.path.join(scen_dir, self.scenario + ".wad"))
         g.set_doom_map("MAP01")
-        g.set_screen_resolution(getattr(vzd.ScreenResolution, env_cfg.get("screen_resolution", "RES_160X120")))
-        g.set_screen_format(getattr(vzd.ScreenFormat, env_cfg.get("screen_format", "GRAY8")))
+        g.set_screen_resolution(getattr(
+            vzd.ScreenResolution, env_cfg.get("screen_resolution", "RES_320X240")))
+        g.set_screen_format(getattr(vzd.ScreenFormat,
+                                    env_cfg.get("screen_format", "RGB24")))
         g.set_window_visible(False)
         g.set_labels_buffer_enabled(True)
-        for var in (vzd.GameVariable.HEALTH, vzd.GameVariable.AMMO2,
-                    vzd.GameVariable.POSITION_X, vzd.GameVariable.POSITION_Y,
-                    vzd.GameVariable.ANGLE, vzd.GameVariable.KILLCOUNT):
-            g.add_available_game_variable(var)
-        g.set_available_buttons([vzd.Button.MOVE_FORWARD, vzd.Button.TURN_LEFT,
-                                 vzd.Button.TURN_RIGHT, vzd.Button.ATTACK])
-        g.set_episode_timeout(env_cfg.get("max_episode_tics", 2100))
-        g.set_living_reward(-0.01)
+        self._var_names = ["HEALTH", "AMMO2", "POSITION_X", "POSITION_Y",
+                           "ANGLE", "KILLCOUNT"]
+        for name in self._var_names:
+            g.add_available_game_variable(getattr(vzd.GameVariable, name))
+        g.set_available_buttons([getattr(vzd.Button, b) for b in buttons])
+        g.set_episode_timeout(int(env_cfg.get("max_episode_tics", 2100)))
+        g.set_living_reward(float(env_cfg.get("living_reward", -0.01)))
         g.set_mode(vzd.Mode.PLAYER)
         g.init()
         self.game = g
         self.frame_skip = int(env_cfg.get("frame_skip", 4))
-        self.available_actions = list(ACTIONS)
+        self.available_actions = list(actions)
         self._tic = 0
+        self._last_obs: Observation | None = None
 
     def reset(self) -> Observation:
         self.game.new_episode()
@@ -52,15 +58,10 @@ class VizDoomEnv:
         return self._observe()
 
     def step(self, action: str) -> StepResult:
-        buttons = [0.0] * 4
-        if action == "forward":
-            buttons[0] = 1.0
-        elif action == "turn_left":
-            buttons[1] = 1.0
-        elif action == "turn_right":
-            buttons[2] = 1.0
-        elif action == "attack":
-            buttons[3] = 1.0
+        n_buttons = len(self.game.get_available_buttons())
+        buttons = [0.0] * n_buttons
+        if action != "noop":
+            buttons[self.available_actions.index(action)] = 1.0
         reward = float(self.game.make_action(buttons, self.frame_skip))
         self._tic += self.frame_skip
         done = self.game.is_episode_finished()
@@ -73,8 +74,13 @@ class VizDoomEnv:
     def _observe(self) -> Observation:
         g = self.game
         s = g.get_state()
-        frame = s.screen_buffer.astype(np.float32) / 255.0
-        health, ammo, px, py, ang, kills = [float(v) for v in s.game_variables]
+        frame = s.screen_buffer
+        if frame.ndim == 3 and frame.shape[0] == 3 and frame.shape[-1] != 3:
+            frame = np.moveaxis(frame, 0, -1)  # (3,H,W) -> (H,W,3)
+        frame = np.ascontiguousarray(frame)
+        vals = {n: float(g.get_game_variable(getattr(self._vzd_var, n)))
+                for n in self._var_names}
+        px, py, ang = vals["POSITION_X"], vals["POSITION_Y"], vals["ANGLE"]
         enemy_visible, dist, rel_ang = False, 1.0, 0.0
         best = None
         for l in s.labels:
@@ -84,25 +90,32 @@ class VizDoomEnv:
                     best = (d, l)
         if best is not None:
             d, l = best
-            bearing = math.degrees(math.atan2(l.object_position_y - py, l.object_position_x - px))
+            bearing = math.degrees(math.atan2(l.object_position_y - py,
+                                              l.object_position_x - px))
             rel = ((bearing - ang + 180.0) % 360.0) - 180.0
             enemy_visible = True
-            dist = float(min(1.0, d / 1500.0))       # normalize by scenario scale
+            dist = float(min(1.0, d / 1500.0))
             rel_ang = float(max(-1.0, min(1.0, rel / 90.0)))
-        obs = Observation(frame=frame, health=health, ammo=ammo, kills=int(kills),
-                          position_x=px, position_y=py, angle_deg=ang,
+        obs = Observation(frame=frame, health=vals["HEALTH"], ammo=vals["AMMO2"],
+                          kills=int(vals["KILLCOUNT"]), position_x=px,
+                          position_y=py, angle_deg=ang,
                           enemy_visible=enemy_visible, enemy_distance=dist,
                           enemy_angle=rel_ang, episode_tic=self._tic)
         self._last_obs = obs
         return obs
 
+    @property
+    def _vzd_var(self):
+        import vizdoom as vzd
+        return vzd.GameVariable
+
 
 class FixtureEnv:
     """Deterministic scripted environment with the same interface as VizDoomEnv.
 
-    Clearly labeled ``fixture``: a single enemy on a 2D plane, a scripted
-    approach/reposition policy, and a procedurally rendered grayscale frame
-    (bright blob = enemy). NOT ViZDoom; exists for tests and headless-less dev.
+    Clearly labeled ``fixture``: enemies on a 2D plane with a scripted
+    approach/wobble policy and a procedurally rendered RGB frame (bright blob
+    = nearest enemy). NOT ViZDoom; exists for tests and headless-less dev.
     """
 
     backend_name = "fixture"
@@ -111,8 +124,10 @@ class FixtureEnv:
         env_cfg = cfg["environment"]
         self.frame_skip = int(env_cfg.get("frame_skip", 4))
         self.max_steps = int(env_cfg.get("max_controller_steps", 175))
-        self.resolution = (120, 160)  # H, W
-        self.available_actions = list(ACTIONS)
+        self.resolution = (240, 320)  # H, W
+        self.available_actions = list(SCENARIOS.get(
+            env_cfg.get("scenario", "defend_the_center"),
+            SCENARIOS["defend_the_center"])[1])
         self._rng = np.random.default_rng(42)
         self.reset()
 
@@ -121,9 +136,9 @@ class FixtureEnv:
         self.health = 100.0
         self.ammo = 50.0
         self.kills = 0
-        self.angle = 0.0              # player heading, degrees
-        self.enemy_dist = 1.0         # normalized
-        self.enemy_bearing = 0.35     # degrees offset from heading
+        self.angle = 0.0
+        self.enemy_dist = 1.0
+        self.enemy_bearing = 0.35
         self.enemy_alive = True
         self._respawn_in = 0
         return self._observe()
@@ -132,6 +147,8 @@ class FixtureEnv:
         reward = -0.01
         if action == "forward":
             self.enemy_dist = max(0.05, self.enemy_dist - 0.04)
+        elif action == "backward":
+            self.enemy_dist = min(1.0, self.enemy_dist + 0.03)
         elif action == "turn_left":
             self.angle -= 15.0
         elif action == "turn_right":
@@ -144,7 +161,6 @@ class FixtureEnv:
                 self.kills += 1
                 reward = 1.0
                 self._respawn_in = 25
-        # scripted enemy behaviour: drifts toward the player, wobbles sideways
         if self.enemy_alive:
             self.enemy_dist = min(1.0, self.enemy_dist + 0.006)
             self.enemy_bearing += float(self._rng.standard_normal() * 3.0)
@@ -168,15 +184,16 @@ class FixtureEnv:
 
     def _observe(self) -> Observation:
         rel = self._rel_bearing()
-        frame = np.full(self.resolution, 0.05, dtype=np.float32)
+        h, w = self.resolution
+        frame = np.full((h, w, 3), 12, dtype=np.uint8)
+        frame[h // 2:, :, 1] = 30  # dark floor gradient
         if self.enemy_alive:
-            # draw enemy as a bright blob: screen x from bearing, size from distance
-            cx = int(self.resolution[1] / 2 * (1.0 + max(-1.0, min(1.0, rel / 90.0))))
-            size = int(6 + 26 * (1.0 - self.enemy_dist))
-            cy = self.resolution[0] // 2
-            y0, y1 = max(0, cy - size), min(self.resolution[0], cy + size)
-            x0, x1 = max(0, cx - size), min(self.resolution[1], cx + size)
-            frame[y0:y1, x0:x1] = 0.9
+            cx = int(w / 2 * (1.0 + max(-1.0, min(1.0, rel / 90.0))))
+            size = int(8 + 40 * (1.0 - self.enemy_dist))
+            cy = h // 2
+            y0, y1 = max(0, cy - size), min(h, cy + size)
+            x0, x1 = max(0, cx - size), min(w, cx + size)
+            frame[y0:y1, x0:x1] = (220, 60, 40)
         return Observation(
             frame=frame, health=self.health, ammo=self.ammo, kills=self.kills,
             position_x=0.0, position_y=0.0, angle_deg=self.angle,

@@ -46,12 +46,15 @@ def create_app(cfg: dict | None = None) -> FastAPI:
         except FileNotFoundError:
             raise HTTPException(404, f"no recording {run_id!r}")
 
-    @app.get("/api/recordings/{run_id}/frames")
-    def frames(run_id: str) -> FileResponse:
-        path = Path(app.state.recordings_root) / run_id / "frames.u8"
+    @app.get("/api/recordings/{run_id}/frames/{frame_name}")
+    def frame(run_id: str, frame_name: str) -> FileResponse:
+        # frames_meta.pattern is frames/{:06d}.jpg; only allow plain filenames
+        if "/" in frame_name or ".." in frame_name:
+            raise HTTPException(400, "bad frame name")
+        path = Path(app.state.recordings_root) / run_id / "frames" / frame_name
         if not path.exists():
-            raise HTTPException(404, "no frames for this recording")
-        return FileResponse(path, media_type="application/octet-stream")
+            raise HTTPException(404, "no such frame")
+        return FileResponse(path, media_type="image/jpeg")
 
     @app.get("/")
     def index() -> FileResponse:

@@ -17,7 +17,8 @@ def test_closed_loop_episode_end_to_end(fixture_cfg, tmp_path):
 
     rec = load_recording(fixture_cfg["recording"]["directory"], out.name)
     h = rec["header"]
-    assert h["environment_backend"] == "fixture"
+    assert h["recording_format_version"] == "2.0"
+    assert h["environment"]["backend"] == "fixture"
     assert h["connectome"]["provenance"]["source"] == "fixture"
     assert any("FIXTURE" in w for w in h["warnings"])  # fallbacks are explicit
 
@@ -25,12 +26,19 @@ def test_closed_loop_episode_end_to_end(fixture_cfg, tmp_path):
     assert len(steps) >= 10
     for s in steps:
         assert "state" in s and "motor" in s and "populations" in s
+        assert "frame_ref" in s and "t_ms" in s
         assert s["motor"]["selected"] in h["config"]["motor"]["actions"]
     # Jev was primed -> decisions present from step 0
     assert steps[0]["jev"] is not None
     assert steps[0]["jev"]["is_mock"] is True
-    # frames recorded and consistent with step count
+    # frames recorded as JPEG and consistent with step count
     assert rec["frames"]["count"] >= len(steps) - 1
+    assert rec["frames"]["codec"] == "jpeg"
+    # episode metrics present
+    assert rec["summary"] is not None
+    ep = rec["summary"]["episode"]
+    assert ep["controller_steps"] == len(steps)
+    assert ep["jev_decisions"] > 0
     # no secrets anywhere in the recording
     raw = json.dumps(rec)
     assert "api_key" not in raw.lower() and "authorization" not in raw.lower()

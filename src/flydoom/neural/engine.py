@@ -52,6 +52,7 @@ class LIFEngine:
         self._external = np.zeros(self.n, dtype=np.float32)
         self.time_ms = 0.0
         self.step_count = 0
+        self.total_spikes = 0
         self.reset()
 
     # -- lifecycle ---------------------------------------------------------
@@ -63,6 +64,7 @@ class LIFEngine:
         self._external.fill(0.0)
         self.time_ms = 0.0
         self.step_count = 0
+        self.total_spikes = 0
 
     # -- input -------------------------------------------------------------
     def inject_input(self, indices: np.ndarray, currents: np.ndarray) -> None:
@@ -98,6 +100,7 @@ class LIFEngine:
             self.rate += self._rate_alpha * (self.spikes * (1000.0 / self.dt) - self.rate)
             self.time_ms += self.dt
             self.step_count += 1
+            self.total_spikes += int(fired.sum())
         return self.spikes
 
     # -- readouts ----------------------------------------------------------

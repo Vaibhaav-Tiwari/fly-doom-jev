@@ -22,12 +22,18 @@ def list_recordings(root: str | Path) -> list[dict]:
                 if obj.get("kind") == "header":
                     header = obj
                     break
+        env_info = header.get("environment", {}) if header else {}
         out.append({
             "run_id": d.name,
             "created_at": header.get("created_at") if header else None,
-            "environment_backend": header.get("environment_backend") if header else None,
+            "format_version": header.get("recording_format_version") if header else None,
+            "environment_backend": env_info.get("backend"),
+            "scenario": env_info.get("scenario"),
             "connectome_source": (header.get("connectome", {}).get("provenance", {})
                                   .get("source") if header else None),
+            "connectome_reduced": (header.get("connectome", {}).get("provenance", {})
+                                   .get("reduced") if header else None),
+            "n_neurons": header.get("connectome", {}).get("n_neurons") if header else None,
             "jev": header.get("jev") if header else None,
             "warnings": header.get("warnings", []) if header else [],
         })
@@ -47,13 +53,13 @@ def load_recording(root: str | Path, run_id: str) -> dict:
                 header = obj
             elif kind == "frames_meta":
                 frames_meta = obj
-            elif kind == "summary":
+            elif kind in ("summary", "episode_end"):
                 summary = obj
             elif kind == "step":
                 steps.append(obj)
     if header is None:
         raise ValueError(f"recording {run_id} has no header")
-    if frames_meta and (Path(root) / run_id / frames_meta["file"]).exists():
-        frames_meta["url"] = f"/api/recordings/{run_id}/frames"
+    if frames_meta and frames_meta.get("pattern"):
+        frames_meta["url_pattern"] = f"/api/recordings/{run_id}/frames/" + "{:06d}.jpg"
     return {"run_id": run_id, "header": header, "steps": steps,
             "frames": frames_meta, "summary": summary}

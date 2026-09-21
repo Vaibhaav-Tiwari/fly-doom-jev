@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from flydoom.doom.base import ACTIONS, Observation
+from flydoom.doom.base import Observation
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
+DEFAULT_ACTIONS = ["turn_left", "turn_right", "attack", "noop"]
 
 
 class EnvironmentState(BaseModel):
@@ -39,7 +40,8 @@ def compute_threat(obs: Observation) -> float:
     return float(round(min(1.0, max(0.0, 0.7 * proximity + 0.3 * centered)), 4))
 
 
-def encode_state(obs: Observation) -> EnvironmentState:
+def encode_state(obs: Observation, available_actions: list[str] | None = None
+                 ) -> EnvironmentState:
     return EnvironmentState(
         episode_tic=obs.episode_tic,
         health=float(obs.health),
@@ -49,5 +51,5 @@ def encode_state(obs: Observation) -> EnvironmentState:
         enemy_distance=float(obs.enemy_distance),
         enemy_angle=float(obs.enemy_angle),
         threat_level=compute_threat(obs),
-        available_actions=list(ACTIONS),
+        available_actions=list(available_actions or DEFAULT_ACTIONS),
     )

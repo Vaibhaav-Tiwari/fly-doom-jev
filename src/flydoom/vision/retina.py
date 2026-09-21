@@ -19,7 +19,12 @@ class RetinaEncoder:
         self._assignments: np.ndarray | None = None
 
     def encode_frame(self, frame: np.ndarray) -> np.ndarray:
-        """Mean-pool a (H, W) float frame into a (rows*cols,) retinal vector in [0,1]."""
+        """Mean-pool a frame into a (rows*cols,) retinal vector in [0,1].
+
+        Accepts float (H, W) in [0,1] or uint8 RGB (H, W, 3)."""
+        if frame.ndim == 3:
+            frame = (frame.astype(np.float32) @ np.asarray(
+                [0.2126, 0.7152, 0.0722], dtype=np.float32)) / 255.0
         h, w = frame.shape
         out = np.empty((self.rows, self.cols), dtype=np.float32)
         for r in range(self.rows):

@@ -1,10 +1,11 @@
-"""Closed-loop episode runner (v1).
+"""Closed-loop episode runner.
 
-    ViZDoom/fixture -> state/vision -> mock Jev (async) -> JevBridge ->
-    LIF engine on reduced MaleCNS -> MotorDecoder -> action -> env
+    ViZDoom -> state/vision -> Jev (async, mock by default) -> JevBridge ->
+    LIF engine on the full MaleCNS v1.0 graph -> typed DN decoder -> action
 
 Run:  python -m flydoom.experiments.runner --config configs/demo.yaml
-Produces a recording directory under outputs/recordings/<run_id>/.
+Produces a recording directory under outputs/recordings/<run_id>/
+(recording format v2, see docs/RECORDING_FORMAT.md).
 """
 
 from __future__ import annotations
@@ -23,14 +24,48 @@ from flydoom.doom import make_env
 from flydoom.integration import JevBridge
 from flydoom.jev import JevScheduler, make_jev_client
 from flydoom.malecns import load_connectome
-from flydoom.malecns.graph import MOTOR_POPULATION
-from flydoom.motor import MotorDecoder
-from flydoom.neural import LIFEngine
+from flydoom.malecns.full import FullConnectome
+from flydoom.motor import make_decoder
 from flydoom.state import encode_state
 from flydoom.telemetry import RecordingWriter
-from flydoom.vision import RetinaEncoder
+from flydoom.vision import PhotoreceptorPathway, RetinaEncoder
 
 log = logging.getLogger(__name__)
+
+
+def build_neural(cfg: dict):
+    """Returns (connectome, engine). Full native engine by default."""
+    connectome = load_connectome(cfg)
+    neural = cfg["neural"]
+    if isinstance(connectome, FullConnectome):
+        from flydoom.neural.engine_native import NativeLIFEngine
+        eng = neural.get("engine", {})
+        engine = NativeLIFEngine(
+            connectome,
+            timestep_ms=float(neural.get("timestep_ms", 1.0)),
+            syn_gain=float(eng.get("syn_gain", 0.3)),
+            tau_v_ms=float(eng.get("tau_v_ms", 20.0)),
+            tau_syn_ms=float(eng.get("tau_syn_ms", 5.0)),
+            syn_delay_ms=float(eng.get("syn_delay_ms", 2.0)),
+            rate_tau_ms=float(eng.get("rate_tau_ms", 100.0)))
+    else:
+        from flydoom.neural import LIFEngine
+        engine = LIFEngine(connectome,
+                           timestep_ms=float(neural.get("timestep_ms", 2.0)),
+                           noise=1.0, seed=int(cfg.get("seed", 42)))
+    return connectome, engine
+
+
+def build_vision(cfg: dict, connectome):
+    if isinstance(connectome, FullConnectome):
+        v = cfg["vision"]
+        return ("photoreceptor", PhotoreceptorPathway(
+            connectome, gain=float(v.get("gain", 30.0)),
+            lamina_bias=float(v.get("lamina_bias", 8.0))))
+    v = cfg["vision"]
+    enc = RetinaEncoder(tuple(v.get("retina_size", [16, 12])),
+                        gain=float(v.get("gain", 10.0)))
+    return ("mosaic", enc)
 
 
 def run_episode(cfg: dict, record: bool = True) -> Path | None:
@@ -38,24 +73,17 @@ def run_episode(cfg: dict, record: bool = True) -> Path | None:
     seed = int(cfg.get("seed", 42))
 
     env = make_env(cfg)
-    connectome = load_connectome(cfg)
-    neural_cfg = cfg["neural"]
-    engine = LIFEngine(
-        connectome,
-        timestep_ms=float(neural_cfg.get("timestep_ms", 2.0)),
-        noise=1.0, seed=seed)
-    retina = RetinaEncoder(tuple(cfg["vision"].get("retina_size", [16, 12])),
-                           gain=float(cfg["vision"].get("gain", 25.0)))
+    connectome, engine = build_neural(cfg)
+    vision_kind, vision = build_vision(cfg, connectome)
     jev_client = make_jev_client(cfg)
     scheduler = JevScheduler(jev_client, cadence_hz=float(cfg["jev"].get("cadence_hz", 3.0)))
     bridge = JevBridge(connectome, cfg["bridge"]["mappings"],
                        gain=float(cfg["bridge"].get("gain", 30.0)))
-    decoder = MotorDecoder(connectome, cfg["motor"]["actions"],
-                           threshold=float(cfg["motor"].get("threshold", 0.02)))
+    decoder = make_decoder(connectome, cfg)
 
-    sensory_idx = connectome.population_indices("visual_projection")
-    steps_neural = int(neural_cfg.get("steps_per_controller_step", 8))
-    dt_neural = float(neural_cfg.get("timestep_ms", 2.0))
+    neural_cfg = cfg["neural"]
+    steps_neural = int(neural_cfg.get("steps_per_controller_step", 32))
+    dt_neural = float(neural_cfg.get("timestep_ms", 1.0))
     max_steps = int(cfg["environment"].get("max_controller_steps", 175))
     pop_sample = int(cfg["telemetry"].get("population_sample", 32))
 
@@ -70,52 +98,79 @@ def run_episode(cfg: dict, record: bool = True) -> Path | None:
             "seed": seed,
             "config": cfg,
             "connectome": {"provenance": connectome.provenance,
+                           "n_neurons": connectome.n_neurons,
+                           "n_edges": (connectome.n_edges if isinstance(connectome, FullConnectome)
+                                       else connectome.weights.nnz),
                            "populations": connectome.population_sizes()},
-            "environment_backend": env.backend_name,
-            "jev": {"mode": cfg["jev"].get("mode", "mock"), "client": jev_client.name},
+            "environment": {"backend": env.backend_name,
+                            "scenario": getattr(env, "scenario", "fixture"),
+                            "actions": env.available_actions},
+            "vision": {"pathway": vision_kind},
+            "jev": {"mode": cfg["jev"].get("mode", "mock"), "client": jev_client.name,
+                    "cadence_hz": float(cfg["jev"].get("cadence_hz", 3.0))},
             "bridge": bridge.describe(),
-            "motor": {"actions": decoder.actions,
-                      "source_population": MOTOR_POPULATION},
+            "motor": decoder.describe(),
             "warnings": _fallback_warnings(env, connectome, jev_client),
         })
 
     scheduler.start()
-    stats = {"steps": 0, "kills": 0, "jev_decisions": 0, "jev_errors": 0}
+    total_reward = 0.0
+    action_counts: dict[str, int] = {}
+    controller_latencies: list[float] = []
     try:
         obs = env.reset()
         engine.reset()
-        scheduler.prime(encode_state(obs))  # synchronous first decision
+        scheduler.prime(encode_state(obs, env.available_actions))
         t_start = time.time()
         realtime = bool(cfg["environment"].get("realtime", False))
         step_period_s = env.frame_skip / 35.0  # ViZDoom ticrate
+        step_i = 0
         for step_i in range(max_steps):
             t_step = time.perf_counter()
-            state = encode_state(obs)
+            state = encode_state(obs, env.available_actions)
             scheduler.update_state(state)
-
             decision = scheduler.get_decision()
-            # merge sensory drive + Jev modulation into one input write
-            s_idx, s_cur = retina.sensory_drive(obs.frame, sensory_idx)
+
+            # visual pathway -> sensory drive
+            if vision_kind == "photoreceptor":
+                s_idx, s_cur = vision.sample(obs.frame, steps_neural * dt_neural)
+            else:
+                s_idx, s_cur = vision.sensory_drive(
+                    obs.frame,
+                    connectome.population_indices("visual_projection"))
+            # Jev -> bridge modulation (upstream/intermediate populations only)
             b_idx, b_cur = bridge.modulation_currents(decision)
             combined: dict[int, float] = {}
             for i, c in zip(s_idx, s_cur):
                 combined[int(i)] = combined.get(int(i), 0.0) + float(c)
             for i, c in zip(b_idx, b_cur):
                 combined[int(i)] = combined.get(int(i), 0.0) + float(c)
-            idx = np.fromiter(combined.keys(), dtype=np.int64)
-            cur = np.fromiter(combined.values(), dtype=np.float32)
-            engine.inject_input(idx, cur)
+            engine.inject_input(
+                np.fromiter(combined.keys(), dtype=np.int64),
+                np.fromiter(combined.values(), dtype=np.float32))
 
             engine.step(steps_neural)
-            decoded = decoder.decode(engine.get_motor_output())
+            decoded = decoder.decode(engine.rate)
             result = env.step(decoded["selected"])
             obs = result.observation
+            total_reward += result.reward
+            action_counts[decoded["selected"]] = action_counts.get(decoded["selected"], 0) + 1
+            latency_ms = (time.perf_counter() - t_step) * 1000.0
+            controller_latencies.append(latency_ms)
 
             if writer:
+                frame_ref = writer.add_frame(obs.frame)
+                motor_rec = {"scores": decoded["scores"],
+                             "selected": decoded["selected"],
+                             "confidence": round(float(decoded["confidence"]), 4),
+                             "channels": {k: round(v, 4)
+                                          for k, v in decoded.get("channels", {}).items()},
+                             "readout_rates": decoded.get("readout_rates")}
                 writer.write_step({
                     "t_ms": round((time.time() - t_start) * 1000.0, 2),
                     "controller_step": step_i,
                     "episode_tic": obs.episode_tic,
+                    "frame_ref": frame_ref,
                     "state": state.model_dump(),
                     "jev": None if decision is None else {
                         "request_id": decision.request_id,
@@ -124,34 +179,48 @@ def run_episode(cfg: dict, record: bool = True) -> Path | None:
                         "model": decision.model, "is_mock": decision.is_mock,
                         "state_episode_tic": decision.state_episode_tic,
                     },
+                    "neural": {"time_ms": round(engine.time_ms, 2),
+                               "steps": steps_neural,
+                               "total_spikes": engine.total_spikes},
                     "populations": engine.get_population_activity(pop_sample),
-                    "motor": {"scores": decoded["scores"],
-                              "selected": decoded["selected"],
-                              "confidence": round(decoded["confidence"], 4),
-                              "raw_rates": {k: round(v, 3)
-                                            for k, v in decoded["raw_rates"].items()}},
+                    "motor": motor_rec,
                     "reward": result.reward,
-                    "controller_latency_ms": round(
-                        (time.perf_counter() - t_step) * 1000.0, 3),
+                    "controller_latency_ms": round(latency_ms, 3),
                 })
-                writer.add_frame(obs.frame)
             if realtime:
                 elapsed = time.perf_counter() - t_step
                 if elapsed < step_period_s:
                     time.sleep(step_period_s - elapsed)
             if result.done:
                 break
-        stats.update(steps=step_i + 1, kills=obs.kills,
-                     jev_decisions=scheduler.decisions_made,
-                     jev_errors=scheduler.errors)
     finally:
         scheduler.stop()
         env.close()
         if writer:
-            writer.write_step({"kind": "summary", **stats})
+            metrics = {
+                "episode": {
+                    "controller_steps": step_i + 1,
+                    "duration_s": round(engine.time_ms / 1000.0, 2),
+                    "total_reward": round(total_reward, 3),
+                    "kills": int(obs.kills),
+                    "health_end": float(obs.health),
+                    "ammo_end": float(obs.ammo),
+                    "action_counts": action_counts,
+                    "jev_decisions": scheduler.decisions_made,
+                    "jev_errors": scheduler.errors,
+                    "controller_latency_ms": {
+                        "mean": round(float(np.mean(controller_latencies)), 3),
+                        "p95": round(float(np.percentile(controller_latencies, 95)), 3),
+                        "max": round(float(np.max(controller_latencies)), 3)}
+                    if controller_latencies else {},
+                    "neural_total_spikes": engine.total_spikes,
+                }}
+            writer.write_episode_end(metrics)
             writer.close()
 
-    log.info("episode done: %s", stats)
+    log.info("episode done: steps=%d kills=%d reward=%.2f jev=%d decisions/%d errors",
+             step_i + 1, int(obs.kills), total_reward,
+             scheduler.decisions_made, scheduler.errors)
     if writer:
         print(f"recording: {writer.dir}")
         return writer.dir
@@ -162,9 +231,10 @@ def _fallback_warnings(env, connectome, jev_client) -> list[str]:
     w = []
     if env.backend_name != "vizdoom":
         w.append("ENVIRONMENT FIXTURE: deterministic test env used, NOT real ViZDoom")
-    if not connectome.is_real_malecns:
+    src = connectome.provenance.get("source")
+    if src == "fixture":
         w.append("CONNECTOME FIXTURE: synthetic test graph used, NOT MaleCNS data")
-    if connectome.provenance.get("reduced"):
+    elif connectome.provenance.get("reduced"):
         w.append("REDUCED CONNECTOME: subset of MaleCNS v1.0, not the full graph")
     if getattr(jev_client, "name", "").startswith("mock"):
         w.append("MOCK JEV: deterministic heuristic, not a live model")
@@ -172,7 +242,7 @@ def _fallback_warnings(env, connectome, jev_client) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description="Run a closed-loop demo episode")
+    p = argparse.ArgumentParser(description="Run a closed-loop episode")
     p.add_argument("--config", default="configs/demo.yaml")
     p.add_argument("--no-record", action="store_true")
     p.add_argument("--log-level", default="INFO")

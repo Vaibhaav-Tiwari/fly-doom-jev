@@ -1,12 +1,16 @@
-"""JSONL episode recorder.
+"""Recording writer — RECORDING FORMAT v2.
 
-One recording = one run directory containing:
-  recording.jsonl  line 1: header (provenance/config/versions)
-                   then one {"kind": "step", ...} per controller step
-                   last lines: frames_meta, footer
-  frames.u8        raw uint8 grayscale frames (downsampled), if enabled
+One recording = one run directory:
 
-Everything needed for browser replay lives under the run directory.
+  recording.jsonl   line-delimited records; first line is the header
+                    (kind=header), then per-controller-step records
+                    (kind=step), then episode summaries (kind=episode_end)
+                    and a footer (kind=footer). See docs/RECORDING_FORMAT.md.
+  frames/NNNNNN.jpg RGB frames as JPEG (when record_frames is on)
+
+Frames are referenced from step records via `frame_ref`. Everything the
+dashboard needs is under the run directory; no external services are required
+for replay.
 """
 
 from __future__ import annotations
@@ -18,22 +22,22 @@ from pathlib import Path
 
 import numpy as np
 
-RECORDING_FORMAT_VERSION = "1.0"
+RECORDING_FORMAT_VERSION = "2.0"
 
 
 class RecordingWriter:
     def __init__(self, directory: str | Path, run_id: str | None = None,
-                 record_frames: bool = True, frame_downsample: int = 2):
+                 record_frames: bool = True, jpeg_quality: int = 80):
         self.run_id = run_id or time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
         self.dir = Path(directory) / self.run_id
         self.dir.mkdir(parents=True, exist_ok=True)
         self._fp = open(self.dir / "recording.jsonl", "w", encoding="utf-8")
         self.record_frames = record_frames
-        self.frame_downsample = int(frame_downsample)
-        self._frames_fp = open(self.dir / "frames.u8", "wb") if record_frames else None
+        self.jpeg_quality = int(jpeg_quality)
         self._frame_count = 0
-        self._frame_shape: list[int] | None = None
         self._closed = False
+        if record_frames:
+            (self.dir / "frames").mkdir(exist_ok=True)
 
     def write_header(self, meta: dict) -> None:
         self._write({"kind": "header",
@@ -43,23 +47,29 @@ class RecordingWriter:
     def write_step(self, record: dict) -> None:
         self._write({"kind": "step", **record})
 
-    def add_frame(self, frame: np.ndarray) -> None:
-        if self._frames_fp is None:
-            return
-        ds = self.frame_downsample
-        small = np.ascontiguousarray((frame[::ds, ::ds] * 255).astype(np.uint8))
-        self._frames_fp.write(small.tobytes())
+    def write_episode_end(self, metrics: dict) -> None:
+        self._write({"kind": "episode_end", "ended_at": time.time(), **metrics})
+
+    def add_frame(self, frame_rgb: np.ndarray) -> str | None:
+        """Store an RGB frame as JPEG; returns the frame_ref (relative path)."""
+        if not self.record_frames:
+            return None
+        from PIL import Image
+        name = f"frames/{self._frame_count:06d}.jpg"
+        img = frame_rgb
+        if img.dtype != np.uint8:
+            img = (np.clip(img, 0, 1) * 255).astype(np.uint8)
+        Image.fromarray(img).save(self.dir / name, quality=self.jpeg_quality)
         self._frame_count += 1
-        self._frame_shape = list(small.shape)
+        return name
 
     def close(self) -> None:
         if self._closed:
             return
-        if self._frames_fp is not None:
-            self._frames_fp.close()
-            self._write({"kind": "frames_meta", "file": "frames.u8",
-                         "count": self._frame_count, "shape": self._frame_shape,
-                         "dtype": "uint8", "downsample": self.frame_downsample})
+        if self.record_frames:
+            self._write({"kind": "frames_meta", "pattern": "frames/{:06d}.jpg",
+                         "count": self._frame_count, "codec": "jpeg",
+                         "quality": self.jpeg_quality})
         self._write({"kind": "footer", "ended_at": time.time()})
         self._fp.close()
         self._closed = True
