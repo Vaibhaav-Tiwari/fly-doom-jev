@@ -66,11 +66,12 @@ motor:
   actions: [forward, backward, turn_left, turn_right, attack, noop]
   turn_gain: 6.0
   forward_gain: 0.3
-  attack_gain: 2.0
-  turn_min: 0.5
+  attack_gain: 4.0
+  turn_min: 0.3
   forward_min: 0.2
   attack_threshold: 5.0       # Hz on the attack readout channel
-  attack_aim_gate: 0.6        # attack allowed only when |turn imbalance| <= 0.6
+  attack_aim_gate: 1.0        # aim gate off: sweeps showed gating starves the
+                              # attack channel (atk% 0-17 gated vs 18-36 ungated)
   threshold: 0.02             # population_bank fallback only
 
 telemetry:
