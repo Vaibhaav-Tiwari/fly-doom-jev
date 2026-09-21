@@ -8,13 +8,14 @@ environment:
   screen_resolution: RES_160X120
   screen_format: GRAY8
   max_controller_steps: 175   # ~20s episode
+  realtime: true              # pace controller to ~8.75 steps/s so Jev cadence matters
 
 neural:
   # reduced mode: a REAL MaleCNS v1.0 subset if data/raw/malecns-v1.0 is present,
   # otherwise a clearly-labeled deterministic fixture graph through the same interface.
   mode: auto                  # auto | reduced | fixture
   timestep_ms: 2.0
-  steps_per_controller_step: 8
+  steps_per_controller_step: 16
   data_dir: data/raw/malecns-v1.0
   manifest: data/manifests/malecns-v1.0.manifest.json
   cache: data/processed/malecns_reduced_v1.npz
@@ -27,7 +28,7 @@ neural:
 
 vision:
   retina_size: [16, 12]       # downsampled retinal representation (cols, rows)
-  gain: 25.0                  # sensory drive scale
+  gain: 10.0                  # sensory drive scale
 
 jev:
   mode: mock                  # v1: mock only; live API behind JevClient interface stub
