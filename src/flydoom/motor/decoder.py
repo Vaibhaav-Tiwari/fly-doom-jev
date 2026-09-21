@@ -41,7 +41,7 @@ class TypedDNDecoder:
                  readouts: dict | None = None, turn_gain: float = 6.0,
                  forward_gain: float = 0.3, attack_gain: float = 1.0,
                  turn_min: float = 0.5, forward_min: float = 0.2,
-                 attack_threshold: float = 5.0):
+                 attack_threshold: float = 5.0, attack_aim_gate: float = 0.35):
         self.conn = connectome
         self.actions = list(actions)
         self.readouts_cfg = readouts or DEFAULT_READOUTS
@@ -49,6 +49,11 @@ class TypedDNDecoder:
                       "attack": float(attack_gain)}
         self.mins = {"turn": float(turn_min), "forward": float(forward_min),
                      "attack": float(attack_threshold)}
+        # attack is only allowed when the turn readout says we are roughly
+        # aimed (|turn imbalance| <= gate); otherwise the saturated attack
+        # readout starves all re-aiming (measured: attack 99% of steps, agent
+        # never turns). Engineering decoding rule, not biology.
+        self.attack_aim_gate = float(attack_aim_gate)
         # resolve readout indices once
         self._sets: dict[str, dict[str, list[int]]] = {}
         for channel, spec in self.readouts_cfg.items():
@@ -90,6 +95,7 @@ class TypedDNDecoder:
                              for c, ss in self._sets.items()},
                 "contributing": self.contributing(),
                 "gains": self.gains, "thresholds": self.mins,
+                "attack_aim_gate": self.attack_aim_gate,
                 "evidence_class": "typed DN identities biological; channel gains "
                                   "and attack readout are engineering mappings"}
 
@@ -101,26 +107,55 @@ class TypedDNDecoder:
             out[channel] = (pos - neg) * self.gains[channel]
         return out
 
+    def imbalances(self, rates: np.ndarray) -> dict[str, float]:
+        """Signed readout asymmetry (pos-neg)/(pos+neg) in [-1, 1] per channel.
+
+        Raw channel magnitudes scale with absolute firing rates, which made
+        saturated turning readouts (~10^3) drown out the normalized attack
+        score; imbalances keep every action score on a comparable [0, 1] scale.
+        """
+        out = {}
+        for channel, ss in self._sets.items():
+            pos = float(rates[ss["positive"]].sum()) if ss["positive"] else 0.0
+            neg = float(rates[ss["negative"]].sum()) if ss["negative"] else 0.0
+            out[channel] = (pos - neg) / (pos + neg + 1e-9)
+        return out
+
     def decode(self, full_rates: np.ndarray) -> dict:
         """full_rates: per-neuron rates for ALL neurons (engine.rate)."""
         ch = self.channels(full_rates)
+        imb = self.imbalances(full_rates)
         scores = {a: 0.0 for a in self.actions}
         selected, confidence = "noop", 1.0
         if "attack" in scores:
             scores["attack"] = float(max(0.0, ch.get("attack", 0.0))
                                      / max(self.mins["attack"], 1e-9))
-        turn = ch.get("turn", 0.0)
+        turn = imb.get("turn", 0.0)
         if "turn_left" in scores:
             scores["turn_left"] = float(max(0.0, -turn))
         if "turn_right" in scores:
             scores["turn_right"] = float(max(0.0, turn))
-        fwd = ch.get("forward", 0.0)
+        fwd = imb.get("forward", 0.0)
         if "forward" in scores:
             scores["forward"] = float(max(0.0, fwd))
         if "backward" in scores:
             scores["backward"] = float(max(0.0, -fwd))
 
-        # winner-take-all with thresholds; attack has priority
+        # winner-take-all with thresholds; attack has priority WHEN AIMED.
+        # Combo decoding: ViZDoom buttons are simultaneous, so turn/forward may
+        # co-fire with attack (recorded as motor.combo; `selected` stays the
+        # primary action). Engineering decoding rule, not biology.
+        aimed = abs(turn) <= self.attack_aim_gate
+        if not aimed:
+            scores["attack"] = 0.0  # gated out: re-aim first (raw value stays
+                                    # in channels.attack for telemetry)
+        combo: list[str] = []
+        if scores.get("attack", 0.0) >= 1.0:
+            combo.append("attack")
+        for a in ("turn_left", "turn_right", "forward", "backward"):
+            if a in scores and scores[a] > self._min_for(a):
+                combo.append(a)
+                break  # at most one directional action
         if scores.get("attack", 0.0) >= 1.0:
             selected = "attack"
             confidence = min(1.0, scores["attack"] / 3.0)
@@ -136,7 +171,8 @@ class TypedDNDecoder:
         probs = {a: (s / z if z > 0 else 0.0) for a, s in scores.items()}
         probs["noop"] = 1.0 if selected == "noop" else 0.0
         return {"scores": probs, "selected": selected, "confidence": confidence,
-                "channels": ch,
+                "combo": combo,
+                "channels": ch, "imbalances": {k: round(v, 4) for k, v in imb.items()},
                 "readout_rates": {c: {"positive": self._mean(ss["positive"], full_rates),
                                       "negative": self._mean(ss["negative"], full_rates)}
                                   for c, ss in self._sets.items()}}
@@ -192,7 +228,7 @@ class BankDecoder:
             scores = {a: 0.0 for a in self.actions}
             scores["noop"] = 1.0
             return {"scores": scores, "selected": "noop", "confidence": 1.0,
-                    "channels": {}, "raw_rates": raw}
+                    "combo": [], "channels": {}, "raw_rates": raw}
         scale = 4.0 / (max(centered.values()) + 1e-9)
         exps = {a: float(np.exp(centered[a] * scale)) for a in centered}
         z = sum(exps.values())
@@ -202,7 +238,8 @@ class BankDecoder:
         second = ordered[1][1] if len(ordered) > 1 else 0.0
         scores["noop"] = 0.0
         return {"scores": scores, "selected": selected,
-                "confidence": float(top - second), "channels": {}, "raw_rates": raw}
+                "confidence": float(top - second), "combo": [selected],
+                "channels": {}, "raw_rates": raw}
 
 
 def make_decoder(connectome, cfg: dict):
@@ -217,7 +254,8 @@ def make_decoder(connectome, cfg: dict):
                              attack_gain=float(motor.get("attack_gain", 1.0)),
                              turn_min=float(motor.get("turn_min", 0.5)),
                              forward_min=float(motor.get("forward_min", 0.2)),
-                             attack_threshold=float(motor.get("attack_threshold", 5.0)))
+                             attack_threshold=float(motor.get("attack_threshold", 5.0)),
+                             attack_aim_gate=float(motor.get("attack_aim_gate", 0.35)))
         if dec.missing:
             import logging
             logging.getLogger(__name__).warning(

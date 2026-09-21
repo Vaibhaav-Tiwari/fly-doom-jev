@@ -39,6 +39,7 @@ class LifStateC(C.Structure):
         ("slots", C.c_int32), ("delay_steps", C.c_int32), ("ref_steps", C.c_int32),
         ("rest", C.c_float), ("threshold", C.c_float), ("reset", C.c_float),
         ("av", C.c_float), ("ag", C.c_float), ("gsyn", C.c_float),
+        ("gcap", C.c_float),
     ]
 
 
@@ -70,7 +71,7 @@ class NativeLIFEngine:
                  v_reset: float = -52.0, tau_v_ms: float = 20.0,
                  tau_syn_ms: float = 5.0, syn_delay_ms: float = 2.0,
                  refractory_ms: float = 2.0, syn_gain: float = 30.0,
-                 rate_tau_ms: float = 100.0):
+                 rate_tau_ms: float = 100.0, drive_cap_mv: float = 1e9):
         self.connectome = connectome
         self.n = connectome.n_neurons
         self.dt = float(timestep_ms)
@@ -109,6 +110,7 @@ class NativeLIFEngine:
         self._state.av = math.exp(-self.dt / tau_v_ms)
         self._state.ag = math.exp(-self.dt / tau_syn_ms)
         self._state.gsyn = syn_gain
+        self._state.gcap = float(drive_cap_mv)  # excitatory drive cap (mV)
 
         self.time_ms = 0.0
         self.step_count = 0

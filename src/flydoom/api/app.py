@@ -8,6 +8,7 @@ recording files. There are no secrets on this server.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -61,6 +62,13 @@ def create_app(cfg: dict | None = None) -> FastAPI:
     @app.get("/api/recordings")
     def recordings() -> list[dict]:
         return list_recordings(app.state.recordings_root)
+
+    @app.get("/api/recordings/featured")
+    def featured() -> dict:
+        path = Path(app.state.recordings_root) / "featured.json"
+        if not path.exists():
+            raise HTTPException(404, "no featured.json (single-episode runs?)")
+        return json.loads(path.read_text())
 
     @app.get("/api/recordings/{run_id}")
     def recording(run_id: str) -> dict:

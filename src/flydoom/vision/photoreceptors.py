@@ -24,12 +24,18 @@ _LUMA = np.asarray([0.2126, 0.7152, 0.0722], dtype=np.float32)
 class PhotoreceptorPathway:
     def __init__(self, connectome: FullConnectome, gain: float = 30.0,
                  half_saturation: float = 0.02, lowpass_tau_ms: float = 10.0,
-                 lamina_bias: float = 8.0):
+                 lamina_bias: float = 8.0, adaptation_tau_ms: float = 2000.0):
         self.conn = connectome
         self.gain = float(gain)
         self.c = float(half_saturation)
         self.lowpass_tau = float(lowpass_tau_ms)
         self.lamina_bias = float(lamina_bias)
+        # Weber-style gain control: divide by a slow running mean of the scene
+        # luminance so CONTRAST, not absolute brightness, drives the network
+        # (real photoreceptor adaptation; makes the pathway scenario-robust —
+        # dark indoor scenes and bright arenas produce comparable drive).
+        self.adaptation_tau = float(adaptation_tau_ms)  # 0 disables adaptation
+        self.adaptation = 0.2
         self.uv = np.asarray(connectome.retina_uv, dtype=np.float64)
         self.channel = np.asarray(connectome.retina_channel)
         self.luminance = np.zeros(len(connectome.retina), dtype=np.float32)
@@ -71,7 +77,12 @@ class PhotoreceptorPathway:
                                   gather(chans[0])))
         alpha = 1.0 - math.exp(-interval_ms / self.lowpass_tau)
         self.luminance += alpha * (np.clip(light, 0.0, 1.0) - self.luminance)
-        drive = self.gain * self.luminance / (self.c + self.luminance)
+        signal = self.luminance
+        if self.adaptation_tau > 0.0:
+            alpha_a = 1.0 - math.exp(-interval_ms / self.adaptation_tau)
+            self.adaptation += alpha_a * (float(signal.mean()) - self.adaptation)
+            signal = signal / (self.adaptation + 1e-3)
+        drive = self.gain * signal / (self.c + signal)
 
         indices = np.concatenate([self.conn.retina, self.conn.lamina])
         currents = np.concatenate(
@@ -81,6 +92,7 @@ class PhotoreceptorPathway:
 
     def reset(self) -> None:
         self.luminance.fill(0.0)
+        self.adaptation = 0.2
 
 
 def _linearize(rgb: np.ndarray) -> np.ndarray:
