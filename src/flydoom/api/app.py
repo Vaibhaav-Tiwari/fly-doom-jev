@@ -23,6 +23,28 @@ log = logging.getLogger(__name__)
 
 WEB_STATIC = Path(__file__).resolve().parents[3] / "web" / "static"
 
+CONNECTOME_ASSET_NAMES = frozenset(
+    {"meta.json", "positions.f32", "population.i16", "flags.u8", "ids.i64"})
+
+
+def _ensure_connectome_assets(cfg: dict) -> Path | None:
+    """Export the shared viz bundle if the full-graph cache exists but the
+    assets don't. Returns the assets dir, or None when no full graph is
+    available (replay of reduced/fixture recordings works without it)."""
+    cache = Path(cfg.get("neural", {}).get("cache_full",
+                                           "data/processed/malecns_full_v1"))
+    out_dir = Path(cfg.get("recording", {}).get("connectome_assets_dir",
+                                                "outputs/connectome_assets"))
+    if (out_dir / "meta.json").exists():
+        return out_dir
+    if not (cache / "meta.json").exists():
+        return None
+    from flydoom.malecns.full import load_full_connectome
+    from flydoom.malecns.viz_export import export_connectome_assets
+    conn = load_full_connectome(cfg)
+    export_connectome_assets(conn, out_dir)
+    return out_dir
+
 
 def create_app(cfg: dict | None = None) -> FastAPI:
     cfg = cfg or load_config("configs/demo.yaml")
@@ -30,6 +52,7 @@ def create_app(cfg: dict | None = None) -> FastAPI:
 
     app = FastAPI(title="jev-doom-fly replay", version="0.1.0")
     app.state.recordings_root = recordings_root
+    app.state.connectome_assets = _ensure_connectome_assets(cfg)
 
     @app.get("/api/health")
     def health() -> dict:
@@ -55,6 +78,22 @@ def create_app(cfg: dict | None = None) -> FastAPI:
         if not path.exists():
             raise HTTPException(404, "no such frame")
         return FileResponse(path, media_type="image/jpeg")
+
+    @app.get("/api/connectome/{filename}")
+    def connectome_asset(filename: str) -> FileResponse:
+        """Shared connectome viz bundle (positions/ids/flags), loaded once by
+        the frontend. Binary arrays keyed by neuron index; see meta.json."""
+        if filename not in CONNECTOME_ASSET_NAMES:
+            raise HTTPException(400, "bad asset name")
+        assets = app.state.connectome_assets
+        if assets is None:
+            raise HTTPException(404, "no full connectome assets on this server")
+        path = assets / filename
+        if not path.exists():
+            raise HTTPException(404, "asset not exported")
+        media = ("application/json" if filename.endswith(".json")
+                 else "application/octet-stream")
+        return FileResponse(path, media_type=media)
 
     @app.get("/")
     def index() -> FileResponse:

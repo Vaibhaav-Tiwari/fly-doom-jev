@@ -20,7 +20,7 @@ fixed biological connectome, produce observable closed-loop control behavior in
 ViZDoom? See `SCIENCE.md` for exactly what is data, what is engineering, and
 what is NOT claimed.
 
-## Quick start (macOS, Apple Silicon; no CUDA, no API key needed)
+## Quick start (macOS, Apple Silicon; no CUDA)
 
 ```bash
 make setup          # uv venv + deps (incl. ViZDoom); compiles the C LIF kernel on first run
@@ -31,6 +31,13 @@ make replay         # replay dashboard + API at http://127.0.0.1:8420
 make test           # unit + integration tests
 make benchmark      # measured performance numbers -> outputs/metrics/
 ```
+
+`configs/demo.yaml` uses `jev.mode: live` — the real TypeSafe System One API
+(`JEV_BASE_URL=https://api.typesafe.ai/v1`, `JEV_MODEL=jev-latest`). It needs
+`JEV_API_KEY` in the environment (copy `.env.example` to `.env`, fill it in,
+`source .env`; the key never reaches recordings, logs, or the browser).
+Without a key, set `jev.mode: mock` for the deterministic mock — everything
+else is identical.
 
 The first `make run-demo` builds the full-graph cache from the raw feather
 files (~130 s, one-time; afterwards mmap-cached, ~10 ms startup). Episodes run
@@ -46,7 +53,7 @@ in realtime (~8.75 controller steps/s; measured controller latency mean ~70 ms
 | ViZDoom | Real, headless, RGB 320×240, `defend_the_center` (default), `basic`, `deadly_corridor` |
 | Visual pathway | Retinotopic: 5,895 photoreceptors mapped to ommatidia columns, bilinear sRGB sampling, lamina tonic bias |
 | Motor decoder | Typed descending neurons: DNa02 turn L/R, DNp09/DNg100 forward, MDN backward, DNpe017 attack readout |
-| Jev | **Mock** deterministic heuristic (default). Live Moonshot/Kimi client exists as a thin stub; key stays server-side (`JEV_API_KEY`, see `.env.example`) |
+| Jev | **Mock** deterministic heuristic by default; **live** mode calls the real TypeSafe System One structured-probability API (`POST /v1/systemone`, model `jev-latest`) — typed noul/score/choice questions over the 10-question bank, key stays server-side (`JEV_API_KEY`, see `.env.example`) |
 | Behavior honesty | Episodes score ~1–6 kills then die. Not a skilled controller; metrics recorded as-is |
 
 ## Recordings & replay

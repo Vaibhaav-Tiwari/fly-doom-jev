@@ -33,7 +33,7 @@ vision:
   retina_size: [16, 12]       # mosaic fallback only
 
 jev:
-  mode: live                  # mock | live (live = thin stub, needs JEV_API_KEY)
+  mode: live                  # live (System One API, needs JEV_API_KEY) | mock
   cadence_hz: 3.0             # decisions/sec; game/neural loop never blocks on Jev
   # stale decision semantics: last valid decision stays active until a new one arrives
 
@@ -60,6 +60,8 @@ motor:
 
 telemetry:
   population_sample: 32       # neurons sampled per population for summaries
+  top_k: 256                  # most-active neurons recorded per controller step
+                              # (activity.top in each step record)
 
 recording:
   directory: outputs/recordings
