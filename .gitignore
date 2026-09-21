@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+
+# Node / web
+node_modules/
+web/dist/
+web/node_modules/
+
+# Data: never commit raw MaleCNS data or large recordings
+data/raw/
+data/processed/*.npz
+data/processed/*.parquet
+outputs/runs/*
+outputs/recordings/*
+outputs/telemetry/*
+!outputs/**/.gitkeep
+
+# Secrets
+.env
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

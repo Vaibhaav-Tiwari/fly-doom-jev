@@ -1,0 +1,62 @@
+# V1 demo configuration. Everything the v1 closed loop needs; nothing more.
+seed: 42
+
+environment:
+  backend: vizdoom            # vizdoom | fixture (fixture = deterministic test env, clearly labeled)
+  scenario: basic
+  frame_skip: 4               # game tics per controller step (35 tps / 4 ~= 8.75 controller steps/s)
+  screen_resolution: RES_160X120
+  screen_format: GRAY8
+  max_controller_steps: 175   # ~20s episode
+
+neural:
+  # reduced mode: a REAL MaleCNS v1.0 subset if data/raw/malecns-v1.0 is present,
+  # otherwise a clearly-labeled deterministic fixture graph through the same interface.
+  mode: auto                  # auto | reduced | fixture
+  timestep_ms: 2.0
+  steps_per_controller_step: 8
+  data_dir: data/raw/malecns-v1.0
+  manifest: data/manifests/malecns-v1.0.manifest.json
+  cache: data/processed/malecns_reduced_v1.npz
+  reduced:
+    visual_projection: 800
+    ol_intrinsic: 1500
+    cx_intrinsic: 800         # class == 'CX' within cb_intrinsic
+    descending_neuron: 1314   # all descending neurons (motor/readout population)
+    seed: 42
+
+vision:
+  retina_size: [16, 12]       # downsampled retinal representation (cols, rows)
+  gain: 25.0                  # sensory drive scale
+
+jev:
+  mode: mock                  # v1: mock only; live API behind JevClient interface stub
+  cadence_hz: 3.0             # 2-5 Hz per v1 scope
+  # stale decision semantics: last valid decision stays active until a new one arrives.
+
+bridge:
+  gain: 30.0
+  # Jev question -> upstream/intermediate population. Motor/readout populations are
+  # rejected by the bridge guard (see flydoom/integration/bridge.py).
+  mappings:
+    ATTACK: visual_projection
+    RETREAT: ol_intrinsic
+    EXPLORE: cx_intrinsic
+    THREAT_LEVEL: visual_projection
+
+motor:
+  source_population: descending_neuron
+  actions: [forward, turn_left, turn_right, attack, noop]
+  window_ms: 20.0
+  threshold: 0.02
+
+telemetry:
+  population_sample: 32       # neurons sampled per population for activity summaries
+
+recording:
+  directory: outputs/recordings
+  record_frames: true         # downsampled grayscale frames for browser replay
+
+api:
+  host: 127.0.0.1
+  port: 8420

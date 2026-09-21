@@ -1,0 +1,51 @@
+[project]
+name = "jev-doom-fly"
+version = "0.1.0"
+description = "Closed-loop research system coupling a probabilistic decision model (Jev) to the MaleCNS v1.0 Drosophila connectome for ViZDoom control"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=2.1",
+    "scipy>=1.14",
+    "pyarrow>=17.0",
+    "pandas>=2.2",
+    "pydantic>=2.8",
+    "pyyaml>=6.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
+    "vizdoom>=1.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flydoom"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+]
