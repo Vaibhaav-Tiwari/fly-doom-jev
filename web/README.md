@@ -1,18 +1,18 @@
-# Recorded Experiment Replay UI
+# Fly//DOOM replay
 
-A static React + TypeScript + Three.js viewer for synchronized **Recorded Experiments**. The browser reads recording files directly; it does not call Jev, ViZDoom, or a simulation backend.
+A static, replay-first React + TypeScript + Three.js experience. The fly brain is the main stage: recorded population activity lights up the 3D MaleCNS view while the matching ViZDoom frame and motor action play beside it. Click an action or population to seek and isolate its neural drive.
 
-## Run locally
+The browser reads static recordings directly. It never calls Jev, ViZDoom, or the simulation backend.
+
+## Develop
 
 ```bash
 cd web
-npm install
+npm ci
 npm run dev
 ```
 
-Open the Vite URL (normally `http://localhost:5173`).
-
-## Build and serve static files
+## Build and serve
 
 ```bash
 cd web
@@ -21,25 +21,28 @@ npm run build
 npm run preview
 ```
 
-`web/dist/` is self-contained and can be mounted by any static server or copied into a FastAPI static directory. Vite uses a relative asset base, so the build also works under a sub-path.
+The static output is `web/dist/`. Vite uses relative asset URLs, so the directory can be mounted by a basic static server or by FastAPI's static-files support.
 
-## Add recordings
+## Add a recording
 
-1. Place each recording folder under `public/recordings/<id>/`.
-2. Add it to `public/recordings/index.json`.
-3. Point `path` at its JSONL metadata file.
+1. Place the recording under `public/recordings/<id>/`.
+2. Add its display metadata and JSONL path to `public/recordings/index.json`.
+3. Build normally.
 
-The loader supports v1 JSONL (`header`, `step`, `frames_meta`, `footer`) and defensively reads anticipated v2 fields including RGB frame buffers, URL frames, `questions`, neuron coordinates, action contributions, and aligned timestamps. Missing fields render as unavailable rather than being synthesized.
+The loader tolerates missing optional data. It reads v1 `header`, `step`, `frames_meta`, and `footer` records and is ready for v2 RGB buffers, natural-language question arrays, aligned `frame_index` values, per-neuron positions/activity, and per-action `contributing_populations`.
 
-## Recording limitations in the bundled samples
+## Bundled recording limitations
 
-The two bundled recordings are current v1 research outputs. They contain 80×60 grayscale ViZDoom frames, Jev probability maps, sampled population rates, motor scores, state, and timing. The UI plays those real frames as a preloaded pixel buffer. The following v2 fields are not present and remain clearly labeled or unavailable:
+The bundled samples are current v1 outputs. Their 80×60 grayscale ViZDoom buffers, state, Jev scores, sampled activity, motor scores, and timing are real recorded values. V1 does **not** include RGB, full neuron coordinates, or per-action neuron attribution, so:
 
-- RGB game frames (the viewport will automatically use RGB when recorded)
-- explicit episode-state strings
-- natural-language Jev question text (v1 probability keys are shown)
-- recorded 3D neuron coordinates, regions, and cell types (the 3D view uses a labeled deterministic engineering layout)
-- explicit per-action contributing-population attribution (top recorded population activity is shown as decoder context)
-- per-event timestamp streams separate from controller-step timestamps
+- the viewport uses the recorded grayscale pixels and automatically switches to RGB when a v2 RGB shape is present;
+- the brain shows the recorded sampled neurons in a clearly marked deterministic display layout until recorded coordinates exist;
+- neural drive falls back only to the recording header's explicit motor source population (`descending_neuron`), never to invented attribution;
+- richer region/cell-type filters appear automatically when those fields are recorded.
 
-No values are fabricated to fill these gaps.
+## Tests
+
+```bash
+npm test
+npm run build
+```

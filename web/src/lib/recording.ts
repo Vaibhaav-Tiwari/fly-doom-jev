@@ -13,7 +13,12 @@ export async function loadRecording(item:CatalogItem):Promise<Recording>{
  const actions:Record<string,number>={}; let conf=0, latency=0, reward=0;
  for(const s of steps){const a=s.motor?.selected_action??s.motor?.selected??'unknown';actions[a]=(actions[a]??0)+1;conf+=asNumber(s.motor?.confidence);latency+=asNumber(s.jev?.latency_ms);reward+=asNumber(s.reward)}
  const metrics:RunMetrics={duration,steps:steps.length,kills:asNumber(last.kills),health:asNumber(last.health),ammo:asNumber(last.ammo),meanConfidence:steps.length?conf/steps.length:0,meanLatency:steps.length?latency/steps.length:0,reward,actions};
- const recording:Recording={...item,header,steps,frames,duration,metrics};
+ const positionEntry=entries.find(x=>['neuron_positions','neurons_meta','annotations'].includes(x.kind));
+ const embedded=(positionEntry?.neurons??header?.connectome?.neurons??header?.annotations?.neurons??[]) as any[];
+ const packed=positionEntry?.positions as number[][]|undefined;
+ const ids=positionEntry?.body_ids as Array<number|string>|undefined;
+ const staticNeurons=embedded.length?embedded:packed?.map((position,i)=>({body_id:ids?.[i]??i,position}))??[];
+ const recording:Recording={...item,header,steps,frames,duration,metrics,staticNeurons,positionSource:positionEntry?.source??(staticNeurons.length?'recording':undefined)};
  if(frames?.file){const url=new URL(item.path,location.href);url.pathname=url.pathname.replace(/[^/]+$/,frames.file);const fr=await fetch(url);if(fr.ok)recording.frameData=new Uint8Array(await fr.arrayBuffer())}
  return recording;
 }
