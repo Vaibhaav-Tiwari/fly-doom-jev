@@ -86,9 +86,19 @@ class JevBridge:
         return np.concatenate(indices), np.concatenate(currents)
 
     def describe(self) -> dict:
+        # Slices are contiguous ranges of neuron indices (population_indices is
+        # sorted and np.array_split preserves order), so start+count is exact.
+        slices = {}
+        for question, sl in self._slices.items():
+            slices[question] = {
+                "population": self.mappings[question],
+                "start": int(sl[0]) if len(sl) else None,
+                "count": int(len(sl)),
+            }
         return {
             "mappings": dict(self.mappings),
             "gain": self.gain,
+            "slices": slices,
             "prohibited_population": MOTOR_POPULATION,
             "evidence_class": "engineering_hypothesis",
         }

@@ -37,3 +37,17 @@ def test_decoder_banks_disjoint(fixture_connectome):
     assert all(banks)
     total = set().union(*banks)
     assert len(total) == sum(len(b) for b in banks)
+
+
+def test_decoder_contributing_sets(fixture_connectome):
+    dec = BankDecoder(fixture_connectome, ACTIONS)
+    desc = dec.describe()
+    contributing = desc["contributing"]
+    assert set(contributing) == {"forward", "turn_left", "turn_right", "attack"}
+    for action, bank in dec.banks.items():
+        entry = contributing[action]
+        assert entry["indices"] == [int(i) for i in bank]
+        assert len(entry["body_ids"]) == len(bank)
+        # body ids match the graph's own id array
+        for i, bid in zip(bank, entry["body_ids"]):
+            assert bid == int(fixture_connectome.body_ids[int(i)])

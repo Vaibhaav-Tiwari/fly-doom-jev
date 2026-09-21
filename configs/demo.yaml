@@ -60,6 +60,8 @@ motor:
 
 telemetry:
   population_sample: 32       # neurons sampled per population for summaries
+  top_k: 256                  # most-active neurons recorded per controller step
+                              # (activity.top in each step record)
 
 recording:
   directory: outputs/recordings

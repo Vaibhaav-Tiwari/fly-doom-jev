@@ -25,12 +25,70 @@ from flydoom.integration import JevBridge
 from flydoom.jev import JevScheduler, make_jev_client
 from flydoom.malecns import load_connectome
 from flydoom.malecns.full import FullConnectome
+from flydoom.malecns.graph import MOTOR_POPULATION
 from flydoom.motor import make_decoder
 from flydoom.state import encode_state
 from flydoom.telemetry import RecordingWriter
 from flydoom.vision import PhotoreceptorPathway, RetinaEncoder
 
 log = logging.getLogger(__name__)
+
+CONNECTOME_ASSET_FILES = {"meta": "meta.json", "positions": "positions.f32",
+                          "population": "population.i16", "flags": "flags.u8",
+                          "ids": "ids.i64"}
+
+
+def ensure_connectome_assets(cfg: dict, connectome) -> dict | None:
+    """Export the shared browser-viz bundle for the full connectome (once).
+
+    Returns the header reference dict, or None for reduced/fixture graphs
+    (small enough that the recording header itself carries positions).
+    """
+    if not isinstance(connectome, FullConnectome):
+        return None
+    from flydoom.malecns.viz_export import export_connectome_assets
+    out_dir = Path(cfg.get("recording", {}).get("connectome_assets_dir",
+                                                "outputs/connectome_assets"))
+    if not (out_dir / "meta.json").exists():
+        export_connectome_assets(connectome, out_dir)
+    return {"url": "/api/connectome", "files": dict(CONNECTOME_ASSET_FILES),
+            "key": "neuron_index",
+            "note": "arrays are keyed by neuron index (graph row order); "
+                    "step activity indices and decoder contributing sets "
+                    "reference the same order"}
+
+
+def _motor_population(connectome) -> tuple[np.ndarray, list[int]]:
+    """All descending/motor-population neurons: indices + body ids."""
+    if isinstance(connectome, FullConnectome):
+        idx = np.sort(np.concatenate([
+            connectome.population_indices("descending_neuron"),
+            connectome.population_indices("vnc_motor")]))
+        ids = connectome.ids
+    else:
+        idx = connectome.population_indices(MOTOR_POPULATION)
+        ids = connectome.body_ids
+    return idx, [int(ids[i]) for i in idx]
+
+
+def _activity_record(engine, motor_idx: np.ndarray, top_k: int) -> dict:
+    """Per-step neuron-level activity for the 3D brain view.
+
+    top:    [[neuron_index, rate_hz], ...] for the top_k most active neurons
+            (zeros excluded, rates rounded to 0.1 Hz)
+    motor_rates: rate_hz for every motor-population neuron, aligned to the
+            header's motor_population.indices order
+    """
+    rate = np.asarray(engine.rate, dtype=np.float64)
+    k = int(min(top_k, rate.size))
+    if k > 0:
+        sel = np.argpartition(-rate, k - 1)[:k]
+        sel = sel[np.argsort(-rate[sel])]
+        top = [[int(i), round(float(rate[i]), 1)] for i in sel if rate[i] > 0.0]
+    else:
+        top = []
+    motor_rates = [round(float(r), 1) for r in rate[motor_idx]]
+    return {"top": top, "motor_rates": motor_rates}
 
 
 def build_neural(cfg: dict):
@@ -86,6 +144,9 @@ def run_episode(cfg: dict, record: bool = True) -> Path | None:
     dt_neural = float(neural_cfg.get("timestep_ms", 1.0))
     max_steps = int(cfg["environment"].get("max_controller_steps", 175))
     pop_sample = int(cfg["telemetry"].get("population_sample", 32))
+    top_k = int(cfg["telemetry"].get("top_k", 256))
+    motor_idx, motor_ids = _motor_population(connectome)
+    assets_ref = ensure_connectome_assets(cfg, connectome) if record else None
 
     rec_cfg = cfg.get("recording", {})
     writer = None
@@ -110,6 +171,10 @@ def run_episode(cfg: dict, record: bool = True) -> Path | None:
                     "cadence_hz": float(cfg["jev"].get("cadence_hz", 3.0))},
             "bridge": bridge.describe(),
             "motor": decoder.describe(),
+            "motor_population": {"indices": [int(i) for i in motor_idx],
+                                 "body_ids": motor_ids},
+            "connectome_assets": assets_ref,
+            "telemetry": {"population_sample": pop_sample, "top_k": top_k},
             "warnings": _fallback_warnings(env, connectome, jev_client),
         })
 
@@ -183,6 +248,7 @@ def run_episode(cfg: dict, record: bool = True) -> Path | None:
                                "steps": steps_neural,
                                "total_spikes": engine.total_spikes},
                     "populations": engine.get_population_activity(pop_sample),
+                    "activity": _activity_record(engine, motor_idx, top_k),
                     "motor": motor_rec,
                     "reward": result.reward,
                     "controller_latency_ms": round(latency_ms, 3),

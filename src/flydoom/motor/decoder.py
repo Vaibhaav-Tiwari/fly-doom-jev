@@ -62,11 +62,33 @@ class TypedDNDecoder:
         self.missing = {c: s for c, s in self._sets.items()
                         if not s["positive"] and not s["negative"]}
 
+    # which readout sets feed each action's decoder score
+    _ACTION_SOURCES = {"turn_left": [("turn", "negative")],
+                       "turn_right": [("turn", "positive")],
+                       "forward": [("forward", "positive")],
+                       "backward": [("forward", "negative")],
+                       "attack": [("attack", "positive")]}
+
+    def contributing(self) -> dict:
+        """Per-action neuron sets behind each decoder score (for UI highlight)."""
+        out = {}
+        for action in self.actions:
+            if action == "noop":
+                continue
+            idxs: list[int] = []
+            for channel, sign in self._ACTION_SOURCES.get(action, []):
+                idxs.extend(self._sets.get(channel, {}).get(sign, []))
+            idxs = sorted(set(idxs))
+            out[action] = {"indices": idxs,
+                           "body_ids": [int(self.conn.ids[i]) for i in idxs]}
+        return out
+
     def describe(self) -> dict:
         return {"decoder": self.decoder_name,
                 "readouts": {c: {s: [int(self.conn.ids[i]) for i in idxs]
                                  for s, idxs in ss.items()}
                              for c, ss in self._sets.items()},
+                "contributing": self.contributing(),
                 "gains": self.gains, "thresholds": self.mins,
                 "evidence_class": "typed DN identities biological; channel gains "
                                   "and attack readout are engineering mappings"}
@@ -140,6 +162,7 @@ class BankDecoder:
                  threshold: float = 0.02):
         self.actions = list(actions)
         self.threshold = float(threshold)
+        self.conn = connectome
         motor_idx = connectome.population_indices(MOTOR_POPULATION)
         if len(motor_idx) == 0:
             raise ValueError("motor population is empty")
@@ -151,6 +174,9 @@ class BankDecoder:
     def describe(self) -> dict:
         return {"decoder": self.decoder_name,
                 "banks": {a: [int(i) for i in b][:8] for a, b in self.banks.items()},
+                "contributing": {a: {"indices": [int(i) for i in b],
+                                     "body_ids": [int(self.conn.body_ids[i]) for i in b]}
+                                 for a, b in self.banks.items()},
                 "evidence_class": "engineering_hypothesis (arbitrary bank split)"}
 
     def decode(self, full_rates: np.ndarray) -> dict:
