@@ -88,12 +88,14 @@ SYSTEMONE_QUESTIONS: dict[str, dict] = {
     },
     "MOVEMENT_INTENT": {
         "type": "choice",
-        "instructions": "Which movement best serves survival and scoring right now?",
+        "instructions": "Which single movement action best serves survival and scoring right now?",
         "criteria": {
-            "advance": "close distance toward the enemy or objective",
-            "retreat": "increase distance from the threat",
-            "turn_to_face_enemy": "rotate to center a visible enemy",
-            "hold_position": "stay put and act from here",
+            "forward": "move ahead (close distance or advance to search)",
+            "hold": "stay in place",
+            "strafe_left": "sidestep left without turning",
+            "strafe_right": "sidestep right without turning",
+            "turn_left": "rotate left to center a threat or search",
+            "turn_right": "rotate right to center a threat or search",
         },
     },
     "TARGET_PRIORITY": {

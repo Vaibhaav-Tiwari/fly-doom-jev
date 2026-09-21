@@ -122,7 +122,10 @@ Neuron indexing contract (the frontend depends on this):
     "state_episode_tic": 40,
     "usage": {"input_tokens": 539, "output_tokens": 89},
     "confidence": {"THREAT_LEVEL": 0.92},
-    "choices": {"MOVEMENT_INTENT": "turn_to_face_enemy"}
+    "choices": {"MOVEMENT_INTENT": "turn_right"},
+    "choice_probabilities": {"MOVEMENT_INTENT": {"forward": 0.04, "hold": 0.14,
+                                                 "turn_left": 0.33,
+                                                 "turn_right": 0.45}}
   },
   "neural": {"time_ms": 320.0, "steps": 32, "total_spikes": 123456},
   "populations": {
@@ -157,10 +160,14 @@ Notes for consumers:
   (ATTACK, RETREAT, EXPLORE, REPOSITION, SEEK_AMMO, THREAT_LEVEL,
   ENEMY_PRESENT, MOVEMENT_INTENT, TARGET_PRIORITY, ENGAGEMENT_CONFIDENCE).
   In live mode (`is_mock: false`) these come from the TypeSafe System One API
-  (`POST /v1/systemone`); `model` is the server's resolved model name, `usage`
-  holds input/output token counts, `confidence` the per-question confidence of
-  score/choice questions, and `choices` the winning choice names. All three
-  are `null` in mock mode.
+  (`POST {JEV_BASE_URL}/systemone`; path configurable via `jev.decide_path`,
+  e.g. `/decide` for the hosted proxy). `model` is the server's resolved model
+  name, `usage` the token counts (plus `cost_usd` / `credits_remaining_usd`
+  when the endpoint returns them — the official endpoint currently returns
+  token counts only), `confidence` the per-question confidence of score/choice
+  questions, `choices` the winning choice names, and `choice_probabilities`
+  the full distribution over each choice question's options (great for the
+  dashboard). All four are `null` in mock mode.
 - `populations` keys are coarse MaleCNS groups (`ol_sensory`,
   `visual_projection`, `visual_centrifugal`, `ol_intrinsic`, `cx_intrinsic`,
   `cb_intrinsic`, `cb_sensory`, `ascending_neuron`, `descending_neuron`,
@@ -189,11 +196,21 @@ Notes for consumers:
     "kills": 2, "health_end": 8.0, "ammo_end": 6.0,
     "action_counts": {"attack": 67, "turn_left": 38},
     "jev_decisions": 37, "jev_errors": 0,
+    "jev_disabled_reason": null,
+    "jev_cost_usd_total": 0.0,
+    "jev_credits_remaining_usd": null,
     "controller_latency_ms": {"mean": 68.4, "p95": 75.7, "max": 112.5},
     "neural_total_spikes": 14222651
   }
 }
 ```
+
+`jev_disabled_reason` is non-null ONLY when live Jev hit a permanent failure
+(401/402/403) mid-run: live Jev is then disabled for the rest of the run and
+this field carries the reason — the UI MUST surface it (there is never a
+silent mid-recording fallback to mock). `jev_cost_usd_total` /
+`jev_credits_remaining_usd` are accumulated from per-decision `usage` when the
+endpoint reports costs; otherwise 0.0 / null.
 
 ### frames_meta (kind = "frames_meta")
 

@@ -15,7 +15,7 @@ import time
 
 from flydoom.state.encoder import EnvironmentState
 
-from .client import JevClient, JevDecision
+from .client import JevAuthError, JevClient, JevDecision
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +33,11 @@ class JevScheduler:
         self._thread: threading.Thread | None = None
         self.decisions_made = 0
         self.errors = 0
+        # set on permanent (auth/billing) failure: live Jev is disabled for
+        # the rest of the run — never a silent mid-recording mock fallback
+        self.disabled_reason: str | None = None
+        self.total_cost_usd = 0.0
+        self.credits_remaining_usd: float | None = None
 
     def update_state(self, state: EnvironmentState) -> None:
         with self._lock:
@@ -45,13 +50,12 @@ class JevScheduler:
     def prime(self, state: EnvironmentState) -> JevDecision | None:
         """Synchronously produce the first decision (used at episode start so the
         loop never starts with an empty decision slot). Errors are swallowed the
-        same way as in the background loop."""
+        same way as in the background loop; permanent failures disable Jev."""
         try:
-            decision = self.client.decide(state)
-            with self._lock:
-                self._latest = decision
-            self.decisions_made += 1
-            return decision
+            return self._record(self.client.decide(state))
+        except JevAuthError as exc:
+            self._disable(exc)
+            return None
         except Exception as exc:
             self.errors += 1
             log.warning("Jev prime failed: %s", exc)
@@ -68,16 +72,33 @@ class JevScheduler:
         if self._thread:
             self._thread.join(timeout=2.0)
 
+    def _record(self, decision: JevDecision) -> JevDecision:
+        with self._lock:
+            self._latest = decision
+        self.decisions_made += 1
+        usage = decision.meta.get("usage") or {}
+        self.total_cost_usd += float(usage.get("cost_usd") or 0.0)
+        if usage.get("credits_remaining_usd") is not None:
+            self.credits_remaining_usd = float(usage["credits_remaining_usd"])
+        return decision
+
+    def _disable(self, exc: JevAuthError) -> None:
+        self.errors += 1
+        self.disabled_reason = str(exc)
+        log.error("LIVE JEV DISABLED for the rest of this run: %s "
+                  "(recording will carry jev.disabled_reason)", exc)
+        self._stop.set()
+
     def _loop(self) -> None:
         while not self._stop.is_set():
             with self._lock:
                 state = self._state
             if state is not None:
                 try:
-                    decision = self.client.decide(state)
-                    with self._lock:
-                        self._latest = decision
-                    self.decisions_made += 1
+                    self._record(self.client.decide(state))
+                except JevAuthError as exc:
+                    self._disable(exc)
+                    break
                 except Exception as exc:  # never crash the loop; keep stale decision
                     self.errors += 1
                     log.warning("Jev decision failed (keeping previous decision): %s", exc)

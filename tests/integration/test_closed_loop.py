@@ -58,6 +58,9 @@ def test_closed_loop_episode_end_to_end(fixture_cfg, tmp_path):
     ep = rec["summary"]["episode"]
     assert ep["controller_steps"] == len(steps)
     assert ep["jev_decisions"] > 0
+    assert ep["jev_disabled_reason"] is None          # mock run: never disabled
+    assert ep["jev_cost_usd_total"] == 0.0            # mock: no cost
+    assert ep["jev_credits_remaining_usd"] is None
     # no secrets anywhere in the recording
     raw = json.dumps(rec)
     assert "api_key" not in raw.lower() and "authorization" not in raw.lower()

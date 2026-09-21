@@ -246,6 +246,7 @@ def run_episode(cfg: dict, record: bool = True) -> Path | None:
                         "usage": decision.meta.get("usage"),
                         "confidence": decision.meta.get("confidence"),
                         "choices": decision.meta.get("choices"),
+                        "choice_probabilities": decision.meta.get("choice_probabilities"),
                     },
                     "neural": {"time_ms": round(engine.time_ms, 2),
                                "steps": steps_neural,
@@ -277,6 +278,9 @@ def run_episode(cfg: dict, record: bool = True) -> Path | None:
                     "action_counts": action_counts,
                     "jev_decisions": scheduler.decisions_made,
                     "jev_errors": scheduler.errors,
+                    "jev_disabled_reason": scheduler.disabled_reason,
+                    "jev_cost_usd_total": round(scheduler.total_cost_usd, 6),
+                    "jev_credits_remaining_usd": scheduler.credits_remaining_usd,
                     "controller_latency_ms": {
                         "mean": round(float(np.mean(controller_latencies)), 3),
                         "p95": round(float(np.percentile(controller_latencies, 95)), 3),

@@ -26,6 +26,21 @@ from .questions import QUESTION_BANK, SCORE_MAX_LEVEL, SYSTEMONE_QUESTIONS
 
 DEFAULT_BASE_URL = "https://api.typesafe.ai/v1"
 DEFAULT_MODEL = "jev-latest"
+DEFAULT_DECIDE_PATH = "/systemone"
+# hosted proxy variant (https://jevtypesafeai.com/api/v1) uses "/decide"
+
+
+class JevError(RuntimeError):
+    """Base class for live Jev failures."""
+
+
+class JevAuthError(JevError):
+    """Permanent failure: 401 bad key / 402 insufficient credits / 403 inactive.
+    The scheduler disables live Jev for the rest of the run on this."""
+
+
+class JevTransientError(JevError):
+    """Transient failure (e.g. 502 upstream model error after retries)."""
 
 
 @dataclass
@@ -103,12 +118,14 @@ class LiveJevClient(JevClient):
     - choice -> probability of the winning choice (from ``answer.probabilities``)
 
     Raises at construction if JEV_API_KEY is unset so callers fail loudly
-    rather than silently mocking. Raises on HTTP errors, malformed responses,
-    or missing/mistyped answers — the scheduler keeps the last valid decision.
+    rather than silently mocking. 502 responses are retried with backoff;
+    401/402/403 raise JevAuthError (permanent — the scheduler disables live
+    Jev for the rest of the run); malformed responses raise ValueError.
     """
 
     def __init__(self, base_url: str | None = None, model: str | None = None,
-                 timeout_s: float = 30.0):
+                 timeout_s: float = 30.0, decide_path: str | None = None,
+                 max_retries: int = 2):
         self.api_key = os.environ.get("JEV_API_KEY", "")
         if not self.api_key:
             raise RuntimeError(
@@ -117,7 +134,10 @@ class LiveJevClient(JevClient):
         self.base_url = (base_url or os.environ.get("JEV_BASE_URL")
                          or DEFAULT_BASE_URL).rstrip("/")
         self.model = model or os.environ.get("JEV_MODEL") or DEFAULT_MODEL
+        self.decide_path = (decide_path or os.environ.get("JEV_DECIDE_PATH")
+                            or DEFAULT_DECIDE_PATH)
         self.timeout_s = timeout_s
+        self.max_retries = max(0, int(max_retries))  # retries on 502 only
 
     @property
     def name(self) -> str:
@@ -127,16 +147,8 @@ class LiveJevClient(JevClient):
         import httpx
 
         t0 = time.perf_counter()
-        resp = httpx.post(
-            f"{self.base_url}/systemone",
-            headers={"Authorization": f"Bearer {self.api_key}"},
-            json={"model": self.model,
-                  "state": state.model_dump(),
-                  "questions": SYSTEMONE_QUESTIONS},
-            timeout=self.timeout_s)
-        resp.raise_for_status()
-        body = resp.json()
-        probs, confidence, choices = self._parse_answers(body)
+        body = self._post_with_retries(httpx, state)
+        probs, confidence, choices, choice_probs = self._parse_answers(body)
         return JevDecision(
             request_id=str(uuid.uuid4()),
             timestamp=time.time(),
@@ -148,17 +160,42 @@ class LiveJevClient(JevClient):
             meta={"questions": list(QUESTION_BANK),
                   "usage": body.get("usage", {}),
                   "confidence": confidence,
-                  "choices": choices},
+                  "choices": choices,
+                  "choice_probabilities": choice_probs},
         )
 
+    def _post_with_retries(self, httpx, state: EnvironmentState) -> dict:
+        payload = {"model": self.model,
+                   "state": state.model_dump(),
+                   "questions": SYSTEMONE_QUESTIONS}
+        for attempt in range(self.max_retries + 1):
+            resp = httpx.post(
+                f"{self.base_url}{self.decide_path}",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json=payload, timeout=self.timeout_s)
+            if resp.status_code == 502 and attempt < self.max_retries:
+                time.sleep(2.0 ** attempt)  # 1s, 2s, ... backoff
+                continue
+            if resp.status_code in (401, 402, 403):
+                raise JevAuthError(
+                    f"Jev API {resp.status_code} ({_error_code(resp)}): "
+                    "disabling live Jev for this run")
+            if resp.status_code == 502:
+                raise JevTransientError(
+                    f"Jev API 502 upstream model error after {attempt + 1} attempts")
+            resp.raise_for_status()
+            return resp.json()
+        raise JevTransientError("unreachable")  # pragma: no cover
+
     @staticmethod
-    def _parse_answers(body: dict) -> tuple[dict[str, float], dict, dict]:
+    def _parse_answers(body: dict) -> tuple[dict[str, float], dict, dict, dict]:
         answers = body.get("answers")
         if not isinstance(answers, dict):
             raise ValueError("System One response has no 'answers' object")
         probs: dict[str, float] = {}
         confidence: dict[str, float] = {}
         choices: dict[str, str] = {}
+        choice_probs: dict[str, dict[str, float]] = {}
         for name, spec in SYSTEMONE_QUESTIONS.items():
             ans = answers.get(name)
             if not isinstance(ans, dict):
@@ -174,21 +211,35 @@ class LiveJevClient(JevClient):
                 confidence[name] = _clamp(float(ans.get("confidence", 0.0)))
             elif qtype == "choice":
                 choice = str(ans["choice"])
-                dist = ans.get("probabilities") or {}
+                dist = {str(k): _clamp(float(v))
+                        for k, v in (ans.get("probabilities") or {}).items()}
                 p = dist.get(choice, ans.get("confidence", 0.0))
                 probs[name] = _clamp(float(p))
                 confidence[name] = _clamp(float(ans.get("confidence", 0.0)))
                 choices[name] = choice
+                choice_probs[name] = dist
             else:  # pragma: no cover - guarded by SYSTEMONE_QUESTIONS
                 raise ValueError(f"unknown question type {qtype!r}")
-        return probs, confidence, choices
+        return probs, confidence, choices, choice_probs
+
+
+def _error_code(resp) -> str:
+    try:
+        detail = resp.json()
+        if isinstance(detail, dict):
+            return str(detail.get("code") or detail.get("detail") or "")[:80]
+    except Exception:
+        pass
+    return ""
 
 
 def make_jev_client(cfg: dict) -> JevClient:
     jev = cfg["jev"]
     if jev.get("mode", "mock") == "live":
         return LiveJevClient(base_url=jev.get("base_url"), model=jev.get("model"),
-                             timeout_s=float(jev.get("timeout_seconds", 30.0)))
+                             timeout_s=float(jev.get("timeout_seconds", 30.0)),
+                             decide_path=jev.get("decide_path"),
+                             max_retries=int(jev.get("max_retries", 2)))
     return MockJevClient()
 
 
