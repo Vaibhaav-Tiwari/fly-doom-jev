@@ -24,10 +24,15 @@
   2 ms refractory, dt 1 ms. Photoreceptors and lamina interneurons are spiking
   proxies for what are in reality graded-potential cells — a declared
   approximation.
-- **Jev**: an artificial probabilistic decision module. The default is a
-  **deterministic mock** (fixed function of the typed environment state) so
-  the system is reproducible without API keys. The mock is not an LLM and
-  proves nothing about LLM-driven behavior.
+- **Jev**: an artificial probabilistic decision module. In `live` mode this is
+  TypeSafe's **System One** structured-probability API (`POST /v1/systemone`,
+  model `jev-latest`): one request carries the typed environment state plus
+  the 10-question bank as noul/score/choice questions and returns calibrated
+  probabilities — matching the spec's "structured probabilistic decision
+  model, NOT a generic chat model". The default remains a **deterministic
+  mock** (fixed function of the typed environment state) so the system is
+  reproducible without API keys. The mock is not an LLM and proves nothing
+  about LLM-driven behavior.
 
 ## ENGINEERING ASSUMPTIONS (explicitly not biology)
 
@@ -79,7 +84,9 @@ counts. See `docs/RECORDING_FORMAT.md`.
   and graded transmission are absent.
 - The decoder reads a handful of DN types; real locomotion emerges from the
   VNC motor periphery, which is simulated but not used for control.
-- The mock Jev is a heuristic. The live Jev client is a stub.
+- The mock Jev is a heuristic. The live Jev path (System One) is real but
+  shallow: one structured-probability call per decision, no retries/caching
+  yet.
 - Behavior: the controller tracks and kills some enemies, then dies
   (~1–6 kills per episode on defend_the_center). This is reported, not tuned
   away.

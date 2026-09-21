@@ -1,15 +1,114 @@
-"""Typed Jev question bank (v1 subset).
+"""Typed Jev question bank (full spec bank, section 5).
 
 Each question maps to a named probability in the Jev decision. Questions are
 typed concepts, not free-form prose; the same bank is used by the mock and the
-live client.
+live client. For the live client, every question also carries a TypeSafe
+System One question spec (SYSTEMONE_QUESTIONS) — noul (yes/no probability),
+score (rubric expectation, normalized to 0..1), or choice (winner probability).
 """
 
 from __future__ import annotations
 
 QUESTION_BANK: dict[str, str] = {
-    "ATTACK": "Given the environment state, probability that attacking now is appropriate.",
+    "ATTACK": "Probability that attacking now is appropriate.",
     "RETREAT": "Probability that retreating / increasing distance is appropriate.",
     "EXPLORE": "Probability that exploring / advancing to search is appropriate.",
+    "REPOSITION": "Probability that repositioning (strafe/turn to a better angle) is appropriate.",
+    "SEEK_AMMO": "Probability that seeking ammunition/supplies is the priority.",
     "THREAT_LEVEL": "Estimated threat level of the current situation (0-1).",
+    "ENEMY_PRESENT": "Probability that an enemy is currently present/visible.",
+    "MOVEMENT_INTENT": "Confidence in the best immediate movement (choice).",
+    "TARGET_PRIORITY": "Confidence in which enemy to prioritize (choice).",
+    "ENGAGEMENT_CONFIDENCE": "Confidence that engaging now will succeed (0-1).",
 }
+
+# System One question specs, keyed by the same names. criteria reference the
+# structured EnvironmentState fields the API receives as `state`.
+SYSTEMONE_QUESTIONS: dict[str, dict] = {
+    "ATTACK": {
+        "type": "noul",
+        "instructions": "Is attacking the enemy right now the appropriate action?",
+        "criteria": {
+            "true": "An enemy is visible, close enough to hit (enemy_distance small), and ammo > 0",
+            "false": "No enemy visible, enemy too far away, or ammo depleted",
+        },
+    },
+    "RETREAT": {
+        "type": "noul",
+        "instructions": "Is retreating (increasing distance from the threat) appropriate right now?",
+        "criteria": {
+            "true": "Health is low, threat_level is high, or ammo is depleted while an enemy is near",
+            "false": "Healthy and armed, or no immediate threat",
+        },
+    },
+    "EXPLORE": {
+        "type": "noul",
+        "instructions": "Is exploring (advancing to search the area) appropriate right now?",
+        "criteria": {
+            "true": "No enemy visible and the situation is calm",
+            "false": "An enemy is visible or threat_level is high",
+        },
+    },
+    "ENEMY_PRESENT": {
+        "type": "noul",
+        "instructions": "Is an enemy currently present in view?",
+        "criteria": {
+            "true": "enemy_visible is true",
+            "false": "enemy_visible is false",
+        },
+    },
+    "REPOSITION": {
+        "type": "noul",
+        "instructions": "Should the agent reposition (turn/strafe to a better angle) right now?",
+        "criteria": {
+            "true": "An enemy is visible but off-center (|enemy_angle| large) or the current position is disadvantageous",
+            "false": "Enemy centered or no enemy; current position is fine",
+        },
+    },
+    "SEEK_AMMO": {
+        "type": "noul",
+        "instructions": "Should the agent prioritize seeking ammunition or supplies right now?",
+        "criteria": {
+            "true": "ammo is zero or nearly depleted",
+            "false": "ammo is sufficient for the current threat",
+        },
+    },
+    "THREAT_LEVEL": {
+        "type": "score",
+        "instructions": "Rate the immediate threat level of the current situation.",
+        "criteria": ["no threat: safe", "minor threat: enemy far or passive",
+                     "moderate threat: enemy near or engaging",
+                     "severe threat: about to die"],
+    },
+    "ENGAGEMENT_CONFIDENCE": {
+        "type": "score",
+        "instructions": "Rate the confidence that engaging the enemy right now will succeed.",
+        "criteria": ["hopeless: no ammo or enemy overwhelming", "low: unfavorable odds",
+                     "moderate: even odds", "high: clear advantage"],
+    },
+    "MOVEMENT_INTENT": {
+        "type": "choice",
+        "instructions": "Which movement best serves survival and scoring right now?",
+        "criteria": {
+            "advance": "close distance toward the enemy or objective",
+            "retreat": "increase distance from the threat",
+            "turn_to_face_enemy": "rotate to center a visible enemy",
+            "hold_position": "stay put and act from here",
+        },
+    },
+    "TARGET_PRIORITY": {
+        "type": "choice",
+        "instructions": "Which target should be prioritized right now?",
+        "criteria": {
+            "nearest_enemy": "the closest visible enemy",
+            "most_threatening": "the enemy posing the greatest danger",
+            "supplies": "ammunition or health pickups",
+            "none": "no target; keep searching",
+        },
+    },
+}
+
+# score questions normalize the expected level by (len(criteria) - 1)
+SCORE_MAX_LEVEL = {q: len(spec["criteria"]) - 1
+                   for q, spec in SYSTEMONE_QUESTIONS.items()
+                   if spec["type"] == "score"}

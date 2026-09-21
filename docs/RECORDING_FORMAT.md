@@ -117,9 +117,12 @@ Neuron indexing contract (the frontend depends on this):
   "jev": {
     "request_id": "mock-000012",
     "probabilities": {"ATTACK": 0.53, "RETREAT": 0.0, "EXPLORE": 0.0,
-                      "THREAT_LEVEL": 0.57},
-    "latency_ms": 5.1, "model": "mock-jev-v1", "is_mock": true,
-    "state_episode_tic": 40
+                      "THREAT_LEVEL": 0.57, "...": "10 questions total"},
+    "latency_ms": 5.1, "model": "mock-jev-v1 | jev-1.13.0", "is_mock": true,
+    "state_episode_tic": 40,
+    "usage": {"input_tokens": 539, "output_tokens": 89},
+    "confidence": {"THREAT_LEVEL": 0.92},
+    "choices": {"MOVEMENT_INTENT": "turn_to_face_enemy"}
   },
   "neural": {"time_ms": 320.0, "steps": 32, "total_spikes": 123456},
   "populations": {
@@ -150,7 +153,14 @@ Notes for consumers:
 
 - `jev` is `null` only before the first decision; afterwards the last valid
   decision is repeated (stale-decision semantics) — check `request_id` changes
-  to detect new decisions.
+  to detect new decisions. `probabilities` covers the full 10-question bank
+  (ATTACK, RETREAT, EXPLORE, REPOSITION, SEEK_AMMO, THREAT_LEVEL,
+  ENEMY_PRESENT, MOVEMENT_INTENT, TARGET_PRIORITY, ENGAGEMENT_CONFIDENCE).
+  In live mode (`is_mock: false`) these come from the TypeSafe System One API
+  (`POST /v1/systemone`); `model` is the server's resolved model name, `usage`
+  holds input/output token counts, `confidence` the per-question confidence of
+  score/choice questions, and `choices` the winning choice names. All three
+  are `null` in mock mode.
 - `populations` keys are coarse MaleCNS groups (`ol_sensory`,
   `visual_projection`, `visual_centrifugal`, `ol_intrinsic`, `cx_intrinsic`,
   `cb_intrinsic`, `cb_sensory`, `ascending_neuron`, `descending_neuron`,

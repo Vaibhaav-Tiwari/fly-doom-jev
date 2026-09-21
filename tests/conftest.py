@@ -13,6 +13,7 @@ def fixture_cfg(tmp_path):
     cfg["environment"]["max_controller_steps"] = 30
     cfg["neural"]["mode"] = "fixture"
     cfg["neural"]["steps_per_controller_step"] = 4
+    cfg["jev"]["mode"] = "mock"   # tests never need an API key
     cfg["recording"]["directory"] = str(tmp_path / "recordings")
     return cfg
 

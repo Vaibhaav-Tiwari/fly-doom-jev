@@ -1,6 +1,7 @@
 import time
 
 from flydoom.jev.client import JevDecision, MockJevClient
+from flydoom.jev.questions import QUESTION_BANK
 from flydoom.jev.scheduler import JevScheduler
 from flydoom.state import encode_state
 
@@ -10,7 +11,7 @@ def test_mock_jev_deterministic(obs):
     s = encode_state(obs)
     a, b = c.decide(s), c.decide(s)
     assert a.probabilities == b.probabilities
-    assert set(a.probabilities) == {"ATTACK", "RETREAT", "EXPLORE", "THREAT_LEVEL"}
+    assert set(a.probabilities) == set(QUESTION_BANK)
     assert all(0.0 <= p <= 1.0 for p in a.probabilities.values())
     assert a.is_mock
 
