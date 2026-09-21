@@ -105,7 +105,8 @@ def build_neural(cfg: dict):
             tau_v_ms=float(eng.get("tau_v_ms", 20.0)),
             tau_syn_ms=float(eng.get("tau_syn_ms", 5.0)),
             syn_delay_ms=float(eng.get("syn_delay_ms", 2.0)),
-            rate_tau_ms=float(eng.get("rate_tau_ms", 100.0)))
+            rate_tau_ms=float(eng.get("rate_tau_ms", 100.0)),
+            drive_cap_mv=float(eng.get("drive_cap_mv", 1e9)))
     else:
         from flydoom.neural import LIFEngine
         engine = LIFEngine(connectome,
@@ -119,14 +120,18 @@ def build_vision(cfg: dict, connectome):
         v = cfg["vision"]
         return ("photoreceptor", PhotoreceptorPathway(
             connectome, gain=float(v.get("gain", 30.0)),
-            lamina_bias=float(v.get("lamina_bias", 8.0))))
+            half_saturation=float(v.get("half_saturation", 0.02)),
+            lamina_bias=float(v.get("lamina_bias", 8.0)),
+            adaptation_tau_ms=float(v.get("adaptation_tau_ms", 2000.0))))
     v = cfg["vision"]
     enc = RetinaEncoder(tuple(v.get("retina_size", [16, 12])),
                         gain=float(v.get("gain", 10.0)))
     return ("mosaic", enc)
 
 
-def run_episode(cfg: dict, record: bool = True) -> Path | None:
+def run_episode(cfg: dict, record: bool = True) -> dict:
+    """Run one closed-loop episode. Returns
+    {"recording_dir": Path | None, "metrics": dict}."""
     import flydoom
     seed = int(cfg.get("seed", 42))
 
@@ -136,7 +141,8 @@ def run_episode(cfg: dict, record: bool = True) -> Path | None:
     jev_client = make_jev_client(cfg)
     scheduler = JevScheduler(jev_client, cadence_hz=float(cfg["jev"].get("cadence_hz", 3.0)))
     bridge = JevBridge(connectome, cfg["bridge"]["mappings"],
-                       gain=float(cfg["bridge"].get("gain", 30.0)))
+                       gain=float(cfg["bridge"].get("gain", 30.0)),
+                       choice_mappings=cfg["bridge"].get("choice_mappings"))
     decoder = make_decoder(connectome, cfg)
 
     neural_cfg = cfg["neural"]
@@ -165,6 +171,7 @@ def run_episode(cfg: dict, record: bool = True) -> Path | None:
                            "populations": connectome.population_sizes()},
             "environment": {"backend": env.backend_name,
                             "scenario": getattr(env, "scenario", "fixture"),
+                            "skill": getattr(env, "skill", None),
                             "actions": env.available_actions},
             "vision": {"pathway": vision_kind},
             "jev": {"mode": cfg["jev"].get("mode", "mock"), "client": jev_client.name,
@@ -182,6 +189,8 @@ def run_episode(cfg: dict, record: bool = True) -> Path | None:
     total_reward = 0.0
     action_counts: dict[str, int] = {}
     controller_latencies: list[float] = []
+    beh: dict[str, list] = {"turn_imb": [], "selected": [], "visible": [],
+                            "dist": [], "angle": [], "attack_ch": []}
     try:
         obs = env.reset()
         engine.reset()
@@ -216,20 +225,32 @@ def run_episode(cfg: dict, record: bool = True) -> Path | None:
 
             engine.step(steps_neural)
             decoded = decoder.decode(engine.rate)
-            result = env.step(decoded["selected"])
+            combo = decoded.get("combo") or [decoded["selected"]]
+            result = env.step(combo)
             obs = result.observation
             total_reward += result.reward
             action_counts[decoded["selected"]] = action_counts.get(decoded["selected"], 0) + 1
+            if len(combo) > 1:
+                action_counts["combo:" + "+".join(combo)] = \
+                    action_counts.get("combo:" + "+".join(combo), 0) + 1
             latency_ms = (time.perf_counter() - t_step) * 1000.0
             controller_latencies.append(latency_ms)
+            beh["turn_imb"].append(float(decoded.get("imbalances", {}).get("turn", 0.0)))
+            beh["attack_ch"].append(float(decoded.get("channels", {}).get("attack", 0.0)))
+            beh["selected"].append(decoded["selected"])
+            beh["visible"].append(bool(state.enemy_visible))
+            beh["dist"].append(float(state.enemy_distance))
+            beh["angle"].append(float(state.enemy_angle))
 
             if writer:
                 frame_ref = writer.add_frame(obs.frame)
                 motor_rec = {"scores": decoded["scores"],
                              "selected": decoded["selected"],
+                             "combo": combo,
                              "confidence": round(float(decoded["confidence"]), 4),
                              "channels": {k: round(v, 4)
                                           for k, v in decoded.get("channels", {}).items()},
+                             "imbalances": decoded.get("imbalances"),
                              "readout_rates": decoded.get("readout_rates")}
                 writer.write_step({
                     "t_ms": round((time.time() - t_start) * 1000.0, 2),
@@ -266,38 +287,100 @@ def run_episode(cfg: dict, record: bool = True) -> Path | None:
     finally:
         scheduler.stop()
         env.close()
+        episode = {
+            "controller_steps": step_i + 1,
+            "episode_tics": int(obs.episode_tic),
+            "survival_s": round(obs.episode_tic / 35.0, 2),  # 35 tics/s game time
+            "duration_s": round(engine.time_ms / 1000.0, 2),
+            "total_reward": round(total_reward, 3),
+            "kills": int(obs.kills),
+            "health_end": float(obs.health),
+            "ammo_end": float(obs.ammo),
+            "action_counts": action_counts,
+            "jev_decisions": scheduler.decisions_made,
+            "jev_errors": scheduler.errors,
+            "jev_disabled_reason": scheduler.disabled_reason,
+            "jev_cost_usd_total": round(scheduler.total_cost_usd, 6),
+            "jev_credits_remaining_usd": scheduler.credits_remaining_usd,
+            "controller_latency_ms": {
+                "mean": round(float(np.mean(controller_latencies)), 3),
+                "p95": round(float(np.percentile(controller_latencies, 95)), 3),
+                "max": round(float(np.max(controller_latencies)), 3)}
+            if controller_latencies else {},
+            "neural_total_spikes": engine.total_spikes,
+            "behavior": _behavior_metrics(beh),
+        }
         if writer:
-            metrics = {
-                "episode": {
-                    "controller_steps": step_i + 1,
-                    "duration_s": round(engine.time_ms / 1000.0, 2),
-                    "total_reward": round(total_reward, 3),
-                    "kills": int(obs.kills),
-                    "health_end": float(obs.health),
-                    "ammo_end": float(obs.ammo),
-                    "action_counts": action_counts,
-                    "jev_decisions": scheduler.decisions_made,
-                    "jev_errors": scheduler.errors,
-                    "jev_disabled_reason": scheduler.disabled_reason,
-                    "jev_cost_usd_total": round(scheduler.total_cost_usd, 6),
-                    "jev_credits_remaining_usd": scheduler.credits_remaining_usd,
-                    "controller_latency_ms": {
-                        "mean": round(float(np.mean(controller_latencies)), 3),
-                        "p95": round(float(np.percentile(controller_latencies, 95)), 3),
-                        "max": round(float(np.max(controller_latencies)), 3)}
-                    if controller_latencies else {},
-                    "neural_total_spikes": engine.total_spikes,
-                }}
-            writer.write_episode_end(metrics)
+            writer.write_episode_end({"episode": episode})
             writer.close()
 
-    log.info("episode done: steps=%d kills=%d reward=%.2f jev=%d decisions/%d errors",
-             step_i + 1, int(obs.kills), total_reward,
+    log.info("episode done: steps=%d tics=%d kills=%d reward=%.2f jev=%d decisions/%d errors",
+             step_i + 1, int(obs.episode_tic), int(obs.kills), total_reward,
              scheduler.decisions_made, scheduler.errors)
+    out = {"recording_dir": writer.dir if writer else None, "metrics": episode}
     if writer:
         print(f"recording: {writer.dir}")
-        return writer.dir
-    return None
+    return out
+
+
+def _behavior_metrics(beh: dict[str, list]) -> dict:
+    """Honest behavior-quality metrics from per-step records."""
+    n = len(beh["selected"])
+    if n == 0:
+        return {}
+    imb = np.asarray(beh["turn_imb"])
+    vis = np.asarray(beh["visible"], dtype=bool)
+    dist = np.asarray(beh["dist"])
+    ang = np.asarray(beh["angle"])
+    sel = beh["selected"]
+    seized = float(np.mean(np.abs(imb) > 0.95))
+    # convention-free aim tracking: fraction of turn steps where the absolute
+    # aim error |enemy_angle| actually shrank (enemy visible on both steps).
+    # (ViZDoom and the fixture env have opposite angle sign conventions, so a
+    # sign-based agreement metric would be misleading.)
+    turns = [i for i in range(1, n)
+             if sel[i] in ("turn_left", "turn_right") and vis[i] and vis[i - 1]]
+    tracking = float(np.mean([abs(ang[i]) < abs(ang[i - 1]) for i in turns])) \
+        if turns else None
+    # attack opportunities: enemy visible and close
+    opportunity = vis & (dist < 0.4)
+    fired = float(np.mean([s == "attack" for s, o in zip(sel, opportunity) if o])) \
+        if opportunity.any() else None
+    return {
+        "frac_steps_turn_saturated": round(seized, 3),
+        "turn_reduces_aim_error_frac": None if tracking is None else round(tracking, 3),
+        "attack_when_close_frac": None if fired is None else round(fired, 3),
+        "attack_channel_mean_hz": round(float(np.mean(beh["attack_ch"])), 2),
+    }
+
+
+def run_episodes(cfg: dict, episodes: int) -> dict:
+    """Run N recorded episodes; designate the best as the featured recording.
+
+    Selection: survival time (game tics), then kills. All episode recordings
+    are kept; recordings_root/featured.json points at the winner and lists all
+    episode metrics honestly.
+    """
+    root = Path(cfg.get("recording", {}).get("directory", "outputs/recordings"))
+    results = []
+    for ep_i in range(int(episodes)):
+        ep_cfg = dict(cfg, seed=int(cfg.get("seed", 42)) + ep_i)
+        log.info("=== episode %d/%d (seed %d) ===", ep_i + 1, episodes,
+                 ep_cfg["seed"])
+        out = run_episode(ep_cfg, record=True)
+        m = dict(out["metrics"])
+        m["run_id"] = out["recording_dir"].name if out["recording_dir"] else None
+        results.append(m)
+    best = max(results, key=lambda m: (m["episode_tics"], m["kills"]))
+    featured = {"format": 1,
+                "selection": "max survival episode_tics, then kills",
+                "featured_run_id": best["run_id"],
+                "episodes": results}
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "featured.json").write_text(json.dumps(featured, indent=2))
+    log.info("featured episode: %s (tics=%d, kills=%d)",
+             best["run_id"], best["episode_tics"], best["kills"])
+    return {"featured": best, "episodes": results}
 
 
 def _fallback_warnings(env, connectome, jev_client) -> list[str]:
@@ -317,15 +400,29 @@ def _fallback_warnings(env, connectome, jev_client) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Run a closed-loop episode")
     p.add_argument("--config", default="configs/demo.yaml")
+    p.add_argument("--episodes", type=int, default=None,
+                   help="run N episodes, keep the best as featured "
+                        "(default: recording.episodes from config, else 1)")
     p.add_argument("--no-record", action="store_true")
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(argv)
     logging.basicConfig(level=args.log_level,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cfg = load_config(args.config)
+    episodes = args.episodes
+    if episodes is None:
+        episodes = int(cfg.get("recording", {}).get("episodes", 1)) \
+            if not args.no_record else 1
+    if episodes > 1 and not args.no_record:
+        out = run_episodes(cfg, episodes)
+        print(json.dumps({"featured_recording": out["featured"]["run_id"],
+                          "featured_tics": out["featured"]["episode_tics"],
+                          "featured_kills": out["featured"]["kills"]}))
+        return 0
     out = run_episode(cfg, record=not args.no_record)
-    if out:
-        print(json.dumps({"recording_dir": str(out)}))
+    if out["recording_dir"]:
+        print(json.dumps({"recording_dir": str(out["recording_dir"])}))
+    print(json.dumps({"metrics": out["metrics"]}))
     return 0
 
 

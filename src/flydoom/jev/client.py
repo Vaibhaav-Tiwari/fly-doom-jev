@@ -94,6 +94,21 @@ class MockJevClient(JevClient):
                                             - (0.4 if not ammo_ok else 0.0)),
         }
         latency = (time.perf_counter() - t0) * 1000.0 + self.simulated_latency_ms
+        # deterministic choice distribution for MOVEMENT_INTENT: steer toward
+        # the enemy bearing (ViZDoom convention: enemy_angle > 0 -> turn left)
+        ang = float(state.enemy_angle)
+        if state.enemy_visible:
+            tl, tr = _clamp(ang), _clamp(-ang)
+            fwd = 0.3 * (1.0 - abs(ang))
+        else:
+            tl, tr, fwd = 0.1, 0.1, 0.8
+        total = tl + tr + fwd + 0.05
+        move_dist = {"turn_left": round(tl / total, 4),
+                     "turn_right": round(tr / total, 4),
+                     "forward": round(fwd / total, 4),
+                     "hold": round(0.05 / total, 4),
+                     "strafe_left": 0.0, "strafe_right": 0.0}
+        probs["MOVEMENT_INTENT"] = max(move_dist.values())
         return JevDecision(
             request_id=f"mock-{next(self._counter):06d}",
             timestamp=time.time(),
@@ -102,7 +117,9 @@ class MockJevClient(JevClient):
             model=self.name,
             is_mock=True,
             state_episode_tic=state.episode_tic,
-            meta={"questions": list(QUESTION_BANK)},
+            meta={"questions": list(QUESTION_BANK),
+                  "choices": {"MOVEMENT_INTENT": max(move_dist, key=move_dist.get)},
+                  "choice_probabilities": {"MOVEMENT_INTENT": move_dist}},
         )
 
 

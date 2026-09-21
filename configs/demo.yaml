@@ -1,14 +1,18 @@
-# Demo configuration — full MaleCNS v1.0 connectome, real ViZDoom, mock Jev.
+# Demo configuration — full MaleCNS v1.0 connectome, real ViZDoom, live Jev.
 seed: 42
 
 environment:
   backend: vizdoom            # vizdoom | fixture (fixture = deterministic test env, clearly labeled)
-  scenario: defend_the_center # turret defense: turn + attack; enemies approach
+  scenario: fly_arena         # CUSTOM arena derived from defend_the_line (MIT);
+                              # weak monster variants + respawn (documented: stock
+                              # swarm scenarios are unsurvivable >30s even for a
+                              # perfect-aim oracle — see docs/BENCHMARKS.md)
+  skill: 1                    # doom_skill 1 (halved damage); scenario default is 3
   frame_skip: 4               # game tics per controller step (35 tps / 4 ~= 8.75 steps/s)
   screen_resolution: RES_320X240
   screen_format: RGB24
-  max_episode_tics: 2100      # 60s at 35 tps
-  max_controller_steps: 260   # ~30s cap
+  max_episode_tics: 3500      # 100s at 35 tps
+  max_controller_steps: 900   # 900*4 = 3600 tics cap
   realtime: true              # pace controller so Jev cadence and timeline are real
 
 neural:
@@ -21,6 +25,8 @@ neural:
   cache: data/processed/malecns_reduced_v1.npz   # reduced-mode cache (dev only)
   engine:
     syn_gain: 0.3             # synaptic efficacy scale on raw signed synapse counts
+    drive_cap_mv: 8.0         # excitatory drive cap (measured: uncapped -> seizure
+                              # 52-97% of neurons; cap 8 -> 13-18%)
     tau_v_ms: 20.0
     tau_syn_ms: 5.0
     syn_delay_ms: 2.0
@@ -28,8 +34,9 @@ neural:
 
 vision:
   pathway: photoreceptor      # photoreceptor (full graph) | mosaic (fixture fallback)
-  gain: 30.0                  # photoreceptor drive scale (Naka-Rushton)
-  lamina_bias: 8.0            # tonic current on lamina interneurons (spiking proxy)
+  gain: 12.0                  # photoreceptor drive scale (Naka-Rushton)
+  half_saturation: 1.0        # post-adaptation contrast scale (adaptation on)
+  lamina_bias: 6.0            # tonic current on lamina interneurons (spiking proxy)
   retina_size: [16, 12]       # mosaic fallback only
 
 jev:
@@ -38,7 +45,7 @@ jev:
   # stale decision semantics: last valid decision stays active until a new one arrives
 
 bridge:
-  gain: 20.0
+  gain: 10.0
   # Jev question -> upstream/intermediate population. Motor/readout populations
   # (descending_neuron) are rejected by the bridge guard.
   mappings:
@@ -46,16 +53,27 @@ bridge:
     RETREAT: ol_intrinsic
     EXPLORE: cx_intrinsic
     THREAT_LEVEL: visual_projection
+  # choice-question steering: MOVEMENT_INTENT turn_left/right modulate the
+  # contralateral PFL3 steering populations (PFL3_L drives DNa02_R and vice
+  # versa — real connectome wiring, +380/+356 synapses)
+  choice_mappings:
+    MOVEMENT_INTENT:
+      turn_left: {type: PFL3, side: R}
+      turn_right: {type: PFL3, side: L}
 
 motor:
   decoder: typed_dn           # typed_dn (full graph) | population_bank (fallback)
-  actions: [turn_left, turn_right, attack, noop]   # defend_the_center buttons + noop
+  actions: [forward, backward, turn_left, turn_right, attack, noop]
   turn_gain: 6.0
   forward_gain: 0.3
-  attack_gain: 1.0
-  turn_min: 0.5
-  forward_min: 0.2
+  attack_gain: 4.0
+  turn_min: 0.3
+  forward_min: 0.5            # high: forward charge dominated (129 fwd steps in the
+                              # 03:00 featured run) and melee convergence kills; the
+                              # fly fights from standoff instead
   attack_threshold: 5.0       # Hz on the attack readout channel
+  attack_aim_gate: 1.0        # aim gate off: sweeps showed gating starves the
+                              # attack channel (atk% 0-17 gated vs 18-36 ungated)
   threshold: 0.02             # population_bank fallback only
 
 telemetry:
@@ -67,6 +85,7 @@ recording:
   directory: outputs/recordings
   record_frames: true         # JPEG frames for browser replay
   jpeg_quality: 80
+  episodes: 3                 # run N episodes; best (survival, then kills) is featured
 
 api:
   host: 127.0.0.1

@@ -6,7 +6,10 @@
  *
  * Dynamics (all neurons, every step; dt in ms):
  *   g        *= exp(-dt/tau_syn)                       synaptic drive decay
- *   v         = rest + (v-rest)*exp(-dt/tau_v) + (drive + g*gsyn) * (1-av)
+ *   syn       = min(max(g,0)*gsyn, gcap) + min(g,0)*gsyn  excitatory cap:
+ *             bounded positive drive (anti-seizure homeostasis, an explicit
+ *             engineering stabilizer — see SCIENCE.md); inhibition uncapped
+ *   v         = rest + (v-rest)*exp(-dt/tau_v) + (drive + syn) * (1-av)
  *   spike if  v >= threshold and not refractory
  *   on spike: enqueue for delivery after `delay_steps`, v = reset,
  *             refractory = ref_steps
@@ -30,7 +33,7 @@ typedef struct {
     int32_t slots;           /* ring size = delay_steps + 1 */
     int32_t delay_steps;
     int32_t ref_steps;
-    float rest, threshold, reset, av, ag, gsyn;
+    float rest, threshold, reset, av, ag, gsyn, gcap;
 } LifState;
 
 void lif_advance(LifState *s, int64_t steps) {
@@ -52,7 +55,9 @@ void lif_advance(LifState *s, int64_t steps) {
         for (int64_t i = 0; i < n; i++) {
             if (s->refractory[i] > 0) { s->refractory[i]--; continue; }
             float g = s->g[i] * s->ag;
-            float drive = s->drive[i] + g * s->gsyn;
+            float syn = g * s->gsyn;
+            if (syn > s->gcap) syn = s->gcap;  /* excitatory cap only */
+            float drive = s->drive[i] + syn;
             float v = s->rest + (s->v[i] - s->rest) * s->av + drive * (1.0f - s->av);
             s->g[i] = g;
             if (v >= s->threshold) {

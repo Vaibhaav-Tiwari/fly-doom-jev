@@ -22,14 +22,26 @@ class VizDoomEnv:
         import vizdoom as vzd
 
         env_cfg = cfg["environment"]
+        self._label_pos: dict[int, tuple] = {}   # object_id -> last position
+        self._label_still: dict[int, int] = {}   # object_id -> stationary steps
+        self.corpse_steps = int(env_cfg.get("corpse_steps", 8))
         self.scenario = env_cfg.get("scenario", "defend_the_center")
         if self.scenario not in SCENARIOS:
             raise ValueError(f"unknown scenario {self.scenario!r}; "
                              f"supported: {sorted(SCENARIOS)}")
         buttons, actions = SCENARIOS[self.scenario]
         g = vzd.DoomGame()
-        scen_dir = os.path.join(os.path.dirname(vzd.__file__), "scenarios")
-        g.set_doom_scenario_path(os.path.join(scen_dir, self.scenario + ".wad"))
+        if self.scenario == "fly_arena":
+            from flydoom import scenarios as _scen_pkg
+            wad_path = os.path.join(os.path.dirname(_scen_pkg.__file__),
+                                    "fly_arena.wad")
+            if not os.path.exists(wad_path):
+                raise RuntimeError("fly_arena.wad missing; run "
+                                   "`python -m flydoom.scenarios.make_fly_arena`")
+        else:
+            scen_dir = os.path.join(os.path.dirname(vzd.__file__), "scenarios")
+            wad_path = os.path.join(scen_dir, self.scenario + ".wad")
+        g.set_doom_scenario_path(wad_path)
         g.set_doom_map("MAP01")
         g.set_screen_resolution(getattr(
             vzd.ScreenResolution, env_cfg.get("screen_resolution", "RES_320X240")))
@@ -44,7 +56,11 @@ class VizDoomEnv:
         g.set_available_buttons([getattr(vzd.Button, b) for b in buttons])
         g.set_episode_timeout(int(env_cfg.get("max_episode_tics", 2100)))
         g.set_living_reward(float(env_cfg.get("living_reward", -0.01)))
+        self.skill = env_cfg.get("skill")
+        if self.skill is not None:
+            g.set_doom_skill(int(self.skill))  # 1-5; scenario default is 3
         g.set_mode(vzd.Mode.PLAYER)
+        g.set_seed(int(cfg.get("seed", 42)))  # reproducible spawns/rewards
         g.init()
         self.game = g
         self.frame_skip = int(env_cfg.get("frame_skip", 4))
@@ -54,14 +70,23 @@ class VizDoomEnv:
 
     def reset(self) -> Observation:
         self.game.new_episode()
+        if self.scenario == "fly_arena":
+            # stock defend_the_line granted infinite ammo via its ACS script;
+            # our script-free WAD uses the equivalent documented cvar instead
+            self.game.send_game_command("sv_infiniteammo 1")
         self._tic = 0
+        self._label_pos.clear()
+        self._label_still.clear()
         return self._observe()
 
-    def step(self, action: str) -> StepResult:
+    def step(self, action) -> StepResult:
+        # action: a single action string or a list (combo: simultaneous buttons)
+        actions = [action] if isinstance(action, str) else list(action)
         n_buttons = len(self.game.get_available_buttons())
         buttons = [0.0] * n_buttons
-        if action != "noop":
-            buttons[self.available_actions.index(action)] = 1.0
+        for a in actions:
+            if a != "noop":
+                buttons[self.available_actions.index(a)] = 1.0
         reward = float(self.game.make_action(buttons, self.frame_skip))
         self._tic += self.frame_skip
         done = self.game.is_episode_finished()
@@ -84,10 +109,22 @@ class VizDoomEnv:
         enemy_visible, dist, rel_ang = False, 1.0, 0.0
         best = None
         for l in s.labels:
-            if l.object_name not in ("DoomPlayer",) and l.object_position_x is not None:
-                d = math.hypot(l.object_position_x - px, l.object_position_y - py)
-                if best is None or d < best[0]:
-                    best = (d, l)
+            if l.object_name in ("DoomPlayer",) or l.object_position_x is None:
+                continue
+            # corpses stay in the labels buffer with their living name; an
+            # object that has not moved for `corpse_steps` observations is
+            # treated as dead and dropped from enemy tracking
+            pos = (round(l.object_position_x, 1), round(l.object_position_y, 1))
+            if self._label_pos.get(l.object_id) == pos:
+                self._label_still[l.object_id] = self._label_still.get(l.object_id, 0) + 1
+            else:
+                self._label_still[l.object_id] = 0
+            self._label_pos[l.object_id] = pos
+            if self._label_still[l.object_id] >= self.corpse_steps:
+                continue
+            d = math.hypot(l.object_position_x - px, l.object_position_y - py)
+            if best is None or d < best[0]:
+                best = (d, l)
         if best is not None:
             d, l = best
             bearing = math.degrees(math.atan2(l.object_position_y - py,
@@ -143,8 +180,15 @@ class FixtureEnv:
         self._respawn_in = 0
         return self._observe()
 
-    def step(self, action: str) -> StepResult:
+    def step(self, action) -> StepResult:
+        actions = [action] if isinstance(action, str) else list(action)
         reward = -0.01
+        for a in actions:
+            reward += self._apply(a)
+        return self._advance(reward)
+
+    def _apply(self, action: str) -> float:
+        reward = 0.0
         if action == "forward":
             self.enemy_dist = max(0.05, self.enemy_dist - 0.04)
         elif action == "backward":
@@ -161,6 +205,9 @@ class FixtureEnv:
                 self.kills += 1
                 reward = 1.0
                 self._respawn_in = 25
+        return reward
+
+    def _advance(self, reward: float) -> StepResult:
         if self.enemy_alive:
             self.enemy_dist = min(1.0, self.enemy_dist + 0.006)
             self.enemy_bearing += float(self._rng.standard_normal() * 3.0)

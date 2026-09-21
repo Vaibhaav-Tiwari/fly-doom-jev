@@ -50,6 +50,7 @@ always the header; then one `step` record per controller step; then an
   },
   "environment": {"backend": "vizdoom | fixture",
                   "scenario": "defend_the_center",
+                  "skill": 1,
                   "actions": ["turn_left", "turn_right", "attack", "noop"]},
   "vision": {"pathway": "photoreceptor | mosaic"},
   "jev": {"mode": "mock | live", "client": "mock-jev-v1", "cadence_hz": 3.0},
@@ -77,6 +78,9 @@ always the header; then one `step` record per controller step; then an
 
 `warnings` MUST be shown by any UI. `connectome.provenance.source` is
 `"fixture"` when the synthetic test graph was used — never presented as real.
+`environment.skill` is the ViZDoom doom_skill (1-5) the episode ran at when
+the config set it explicitly (`null` = scenario default, 3 for
+defend_the_center); lower is easier and must be visible alongside scores.
 
 Neuron indexing contract (the frontend depends on this):
 
@@ -141,8 +145,10 @@ Neuron indexing contract (the frontend depends on this):
   "motor": {
     "scores": {"turn_left": 0.0, "turn_right": 0.9, "attack": 0.1, "noop": 0.0},
     "selected": "turn_right",
+    "combo": ["turn_right"],
     "confidence": 0.83,
     "channels": {"turn": 5.4, "forward": 0.0, "attack": 1.1},
+    "imbalances": {"turn": 0.42, "forward": 0.0, "attack": 1.0},
     "readout_rates": {"turn": {"positive": 45.2, "negative": 0.0},
                       "forward": {"positive": 0.0, "negative": 0.0},
                       "attack": {"positive": 1.1, "negative": 0.0}}
@@ -183,6 +189,16 @@ Notes for consumers:
   All activity is real simulated LIF activity from the recorded episode.
 - `motor.channels` / `motor.readout_rates` are present for the `typed_dn`
   decoder; the `population_bank` fallback emits `raw_rates` instead.
+- `motor.imbalances` (typed_dn, 2.1+): signed readout asymmetry
+  (positive−negative)/(positive+negative) per channel in [−1, 1]; action
+  scores are derived from imbalances (bounded) rather than raw channel
+  magnitudes, so saturated rates cannot drown out the attack score.
+  `null` for the population_bank decoder.
+- `motor.combo` (2.1+): the list of actions whose buttons were pressed
+  simultaneously this step (ViZDoom buttons are concurrent). `selected` is the
+  primary action; `combo` may add one directional action co-firing with
+  `attack` (typed_dn combo decoding). The population_bank decoder always emits
+  a single-element combo.
 - All rates are EMA firing rates in Hz (`rate_tau_ms` in config).
 
 ### episode_end (kind = "episode_end")
@@ -192,7 +208,8 @@ Notes for consumers:
   "kind": "episode_end",
   "ended_at": 1790006845.0,
   "episode": {
-    "controller_steps": 105, "duration_s": 3.36, "total_reward": -2.19,
+    "controller_steps": 105, "episode_tics": 368, "survival_s": 10.5,
+    "duration_s": 3.36, "total_reward": -2.19,
     "kills": 2, "health_end": 8.0, "ammo_end": 6.0,
     "action_counts": {"attack": 67, "turn_left": 38},
     "jev_decisions": 37, "jev_errors": 0,
@@ -200,10 +217,35 @@ Notes for consumers:
     "jev_cost_usd_total": 0.0,
     "jev_credits_remaining_usd": null,
     "controller_latency_ms": {"mean": 68.4, "p95": 75.7, "max": 112.5},
-    "neural_total_spikes": 14222651
+    "neural_total_spikes": 14222651,
+    "behavior": {"frac_steps_turn_saturated": 0.14,
+                 "turn_reduces_aim_error_frac": 0.71,
+                 "attack_when_close_frac": 0.57,
+                 "attack_channel_mean_hz": 23.7}
   }
 }
 ```
+
+`episode_tics` / `survival_s` are game time (35 tics/s); `duration_s` is
+simulated neural time. `behavior` (2.1+) summarizes control quality honestly:
+turn-readout saturation fraction, fraction of turn steps that shrank the aim
+error |enemy_angle| (convention-free), and how often the agent attacked when
+an enemy was visible and close (< 0.4).
+
+## featured.json (multi-episode runs)
+
+When the runner records multiple episodes (`recording.episodes > 1` or
+`--episodes N`), all episode recording directories are kept and
+`outputs/recordings/featured.json` designates the best one:
+
+```json
+{"format": 1, "selection": "max survival episode_tics, then kills",
+ "featured_run_id": "20260922-101530-ab12cd",
+ "episodes": [{"run_id": "...", "episode_tics": 368, "kills": 2, "...": "..."}]}
+```
+
+Selection is by survival time (game tics), then kills; every episode's full
+metrics are listed — nothing is hidden.
 
 `jev_disabled_reason` is non-null ONLY when live Jev hit a permanent failure
 (401/402/403) mid-run: live Jev is then disabled for the rest of the run and

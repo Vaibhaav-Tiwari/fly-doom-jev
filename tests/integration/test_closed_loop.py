@@ -13,9 +13,12 @@ from flydoom.experiments.runner import run_episode
 
 def test_closed_loop_episode_end_to_end(fixture_cfg, tmp_path):
     out = run_episode(fixture_cfg, record=True)
-    assert out is not None and (out / "recording.jsonl").exists()
+    rec_dir = out["recording_dir"]
+    assert rec_dir is not None and (rec_dir / "recording.jsonl").exists()
+    assert out["metrics"]["controller_steps"] >= 10
+    assert "behavior" in out["metrics"]
 
-    rec = load_recording(fixture_cfg["recording"]["directory"], out.name)
+    rec = load_recording(fixture_cfg["recording"]["directory"], rec_dir.name)
     h = rec["header"]
     assert h["recording_format_version"] == "2.1"
     assert h["environment"]["backend"] == "fixture"

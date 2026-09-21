@@ -10,6 +10,15 @@ SCENARIOS = {
               ["forward", "turn_left", "turn_right", "attack", "noop"]),
     "defend_the_center": (["TURN_LEFT", "TURN_RIGHT", "ATTACK"],
                           ["turn_left", "turn_right", "attack", "noop"]),
+    "defend_the_line": (["TURN_LEFT", "TURN_RIGHT", "ATTACK"],
+                        ["turn_left", "turn_right", "attack", "noop"]),
+    # fly_arena: custom scenario derived from defend_the_line (see
+    # flydoom/scenarios/make_fly_arena.py + PROVENANCE.md). WAD ships in the
+    # flydoom.scenarios package, not the vizdoom package dir.
+    "fly_arena": (["MOVE_FORWARD", "MOVE_BACKWARD", "TURN_LEFT", "TURN_RIGHT",
+                   "ATTACK"],
+                  ["forward", "backward", "turn_left", "turn_right", "attack",
+                   "noop"]),
     "deadly_corridor": (["MOVE_LEFT", "MOVE_RIGHT", "MOVE_FORWARD",
                          "MOVE_BACKWARD", "TURN_LEFT", "TURN_RIGHT", "ATTACK"],
                         ["left", "right", "forward", "backward",
