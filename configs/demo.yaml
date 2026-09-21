@@ -68,7 +68,9 @@ motor:
   forward_gain: 0.3
   attack_gain: 4.0
   turn_min: 0.3
-  forward_min: 0.2
+  forward_min: 0.5            # high: forward charge dominated (129 fwd steps in the
+                              # 03:00 featured run) and melee convergence kills; the
+                              # fly fights from standoff instead
   attack_threshold: 5.0       # Hz on the attack readout channel
   attack_aim_gate: 1.0        # aim gate off: sweeps showed gating starves the
                               # attack channel (atk% 0-17 gated vs 18-36 ungated)
