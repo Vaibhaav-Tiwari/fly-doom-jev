@@ -31,14 +31,11 @@ The static output is `web/dist/`. Vite uses relative asset URLs, so the director
 
 The loader tolerates missing optional data. It reads v1 `header`, `step`, `frames_meta`, and `footer` records and is ready for v2 RGB buffers, natural-language question arrays, aligned `frame_index` values, per-neuron positions/activity, and per-action `contributing_populations`.
 
-## Bundled recording limitations
+## Bundled recordings
 
-The bundled samples are current v1 outputs. Their 80×60 grayscale ViZDoom buffers, state, Jev scores, sampled activity, motor scores, and timing are real recorded values. V1 does **not** include RGB, full neuron coordinates, or per-action neuron attribution, so:
+The featured recording is format 2.1 and is fully static: 93 color JPEG gameplay frames, live Jev 1.13 decisions, neuron-level activity, exact per-action decoder inputs, and the shared MaleCNS visualization bundle. The bundle indexes all 211,577 neurons; 141,781 have recorded soma coordinates and are rendered as GPU instances. Neurons without an annotated soma position remain indexed for activity and attribution but are not assigned invented coordinates.
 
-- the viewport uses the recorded grayscale pixels and automatically switches to RGB when a v2 RGB shape is present;
-- the brain shows the recorded sampled neurons in a clearly marked deterministic display layout until recorded coordinates exist;
-- neural drive falls back only to the recording header's explicit motor source population (`descending_neuron`), never to invented attribution;
-- richer region/cell-type filters appear automatically when those fields are recorded.
+Two legacy v1 recordings remain selectable as compatibility examples. They use recorded grayscale buffers and sampled activity. Their fallback spatial layout is explicitly labeled as an annotation.
 
 ## Tests
 

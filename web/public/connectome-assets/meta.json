@@ -1,0 +1,70 @@
+{
+  "n_neurons": 211577,
+  "arrays": {
+    "positions.f32": {
+      "dtype": "float32-le",
+      "shape": [
+        211577,
+        3
+      ],
+      "nan_means": "no annotated soma position"
+    },
+    "population.i16": {
+      "dtype": "int16-le",
+      "shape": [
+        211577
+      ]
+    },
+    "flags.u8": {
+      "dtype": "uint8",
+      "shape": [
+        211577
+      ]
+    },
+    "ids.i64": {
+      "dtype": "int64-le",
+      "shape": [
+        211577
+      ]
+    }
+  },
+  "populations": [
+    "ol_sensory",
+    "visual_projection",
+    "visual_centrifugal",
+    "ol_intrinsic",
+    "cx_intrinsic",
+    "cb_intrinsic",
+    "cb_sensory",
+    "ascending_neuron",
+    "descending_neuron",
+    "vnc_sensory",
+    "vnc_intrinsic",
+    "vnc_motor",
+    "other"
+  ],
+  "flags_legend": {
+    "1": "photoreceptor",
+    "2": "lamina",
+    "4": "descending_neuron",
+    "8": "vnc_motor",
+    "16": "has_position"
+  },
+  "coordinate_space": "malecns EM voxels (8nm units), soma positions",
+  "with_position": 141781,
+  "provenance": {
+    "source": "malecns-v1.0",
+    "reduced": false,
+    "note": "FULL MaleCNS v1.0 connectome; signed NT weights (raw synapse counts)",
+    "n_neurons": 211577,
+    "n_edges": 26028386,
+    "inhibitory_neurons": 51629,
+    "retina": {
+      "photoreceptors": 6091,
+      "mapped": 5895,
+      "unmapped": 196,
+      "median_vote_confidence": 1.0
+    },
+    "build_seconds": 28.0
+  }
+}
