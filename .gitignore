@@ -30,3 +30,6 @@ outputs/telemetry/*
 
 # ViZDoom runtime artifacts
 _vizdoom.ini
+
+# native kernel build artifacts
+engine/native/build/
