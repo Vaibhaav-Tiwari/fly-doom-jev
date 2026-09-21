@@ -33,7 +33,7 @@ vision:
   retina_size: [16, 12]       # mosaic fallback only
 
 jev:
-  mode: mock                  # mock | live (live = thin stub, needs JEV_API_KEY)
+  mode: live                  # mock | live (live = thin stub, needs JEV_API_KEY)
   cadence_hz: 3.0             # decisions/sec; game/neural loop never blocks on Jev
   # stale decision semantics: last valid decision stays active until a new one arrives
 
