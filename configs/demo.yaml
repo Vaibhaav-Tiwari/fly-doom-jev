@@ -38,7 +38,7 @@ jev:
   # stale decision semantics: last valid decision stays active until a new one arrives
 
 bridge:
-  gain: 12.0
+  gain: 20.0
   # Jev question -> upstream/intermediate population. Motor/readout populations
   # (descending_neuron) are rejected by the bridge guard.
   mappings:

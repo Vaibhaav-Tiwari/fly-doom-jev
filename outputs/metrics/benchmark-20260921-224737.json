@@ -1,0 +1,35 @@
+{
+  "platform": "macOS-26.4-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "python": "3.14.7",
+  "timestamp": 1790011055.479583,
+  "graph_load_s": 0.008,
+  "n_neurons": 211577,
+  "n_edges": 26028386,
+  "connectome_source": "malecns-v1.0",
+  "kernel": [
+    {
+      "batch_steps": 100,
+      "wall_s": 0.1207,
+      "sim_steps_per_s": 828.5,
+      "ms_per_step": 1.207
+    },
+    {
+      "batch_steps": 500,
+      "wall_s": 0.6629,
+      "sim_steps_per_s": 754.2,
+      "ms_per_step": 1.3258
+    },
+    {
+      "batch_steps": 1000,
+      "wall_s": 1.3454,
+      "sim_steps_per_s": 743.3,
+      "ms_per_step": 1.3454
+    }
+  ],
+  "total_spikes_warmup": 7373878,
+  "vision_sample_ms": 1.053,
+  "population_summary_ms": 1.234,
+  "decode_ms": 0.013,
+  "peak_rss_gb": 0.3
+}
