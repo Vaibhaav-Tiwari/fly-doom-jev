@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 
 class JevScheduler:
     def __init__(self, client: JevClient, cadence_hz: float = 3.0):
-        if not (0.1 <= cadence_hz <= 20.0):
+        if not (0.1 <= cadence_hz <= 100.0):  # demo target is 2-5 Hz; tests run faster
             raise ValueError("cadence_hz out of sane range")
         self.client = client
         self.period_s = 1.0 / cadence_hz

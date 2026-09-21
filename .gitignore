@@ -27,3 +27,6 @@ outputs/telemetry/*
 .DS_Store
 .idea/
 .vscode/
+
+# ViZDoom runtime artifacts
+_vizdoom.ini
