@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jev-doom-fly — recorded experiment replay</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>jev-doom-fly <span class="tag">Recorded Experiment</span></h1>
+  <div id="recording-picker">
+    <select id="run-select"></select>
+    <span id="run-meta"></span>
+  </div>
+  <div id="warnings"></div>
+</header>
+
+<main>
+  <section class="panel" id="doom-panel">
+    <h2>DOOM</h2>
+    <canvas id="viewport" width="320" height="240"></canvas>
+    <div class="kv" id="doom-state"></div>
+  </section>
+
+  <section class="panel" id="jev-panel">
+    <h2>Jev decision <span class="sub" id="jev-model"></span></h2>
+    <div id="jev-bars"></div>
+    <div class="kv" id="jev-meta"></div>
+  </section>
+
+  <section class="panel" id="brain-panel">
+    <h2>MaleCNS population activity <span class="sub" id="brain-mode"></span></h2>
+    <div id="pop-bars"></div>
+    <h3>Sampled neurons</h3>
+    <canvas id="heatmap" width="640" height="90"></canvas>
+  </section>
+
+  <section class="panel" id="motor-panel">
+    <h2>Motor decoder</h2>
+    <div id="action-bars"></div>
+    <div class="kv" id="motor-meta"></div>
+  </section>
+</main>
+
+<footer>
+  <div id="transport">
+    <button id="play-btn">&#9654; Play</button>
+    <select id="speed">
+      <option value="0.5">0.5&times;</option>
+      <option value="1" selected>1&times;</option>
+      <option value="2">2&times;</option>
+      <option value="4">4&times;</option>
+    </select>
+    <input type="range" id="scrubber" min="0" max="0" value="0" step="1">
+    <span id="clock">0.00s</span>
+  </div>
+  <canvas id="timeline" width="1200" height="64"></canvas>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
