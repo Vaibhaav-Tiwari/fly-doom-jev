@@ -51,7 +51,10 @@ from flydoom.telemetry import RecordingWriter
 
 log = logging.getLogger(__name__)
 
-CORS_ORIGINS = ["http://127.0.0.1:4173", "http://localhost:4173"]
+# Public demo: the Vercel-hosted site (and its preview deploys) poll this
+# server from arbitrary origins. No credentials are used, so "*" is safe;
+# POST /new is intentionally public — visitors may start a fresh game.
+CORS_ORIGINS = ["*"]
 
 
 class LiveLoop(threading.Thread):
