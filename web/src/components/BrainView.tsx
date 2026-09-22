@@ -120,14 +120,15 @@ export default function BrainView({recording, step}: {recording: Recording; step
     if (!el || !neurons.length) return;
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(35, 1, .1, 100);
-    camera.position.set(0, .2, 11);
+    // Hold a stable, informative three-quarter view until the visitor chooses
+    // to orbit the anatomy themselves.
+    camera.position.set(4.5, 2.1, 9.5);
     const renderer = new THREE.WebGLRenderer({antialias: false, alpha: true, powerPreference: 'high-performance'});
     renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     el.appendChild(renderer.domElement);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.autoRotate = true;
-    controls.autoRotateSpeed = .45;
+    controls.autoRotate = false;
     controls.minDistance = 3;
     controls.maxDistance = 22;
 
