@@ -2,7 +2,7 @@ import {useEffect, useMemo, useRef, useState} from 'react';
 import * as THREE from 'three';
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js';
 import {Maximize2, MousePointer2, Sparkles} from 'lucide-react';
-import type {NeuronSample, Recording, ReplayStep} from '../lib/types';
+import type {NeuronSample, Recording, ReplayStep, RetinalInput} from '../lib/types';
 
 const palette: Record<string, string> = {
   ol_sensory: '#2f82bd', visual_projection: '#2f82bd', visual_centrifugal: '#2f82bd',
@@ -47,6 +47,21 @@ function normalizeRecent(value: number, samples: number[] | undefined) {
   return Math.max(0, Math.min(1, (value - low) / (high - low)));
 }
 
+function retinalMagnitude(input: RetinalInput | undefined): number | null {
+  if (typeof input === 'number') return Number.isFinite(input) ? Math.max(0, input) : null;
+  if (Array.isArray(input)) {
+    const values = input.filter(Number.isFinite);
+    return values.length ? Math.max(0, ...values) : null;
+  }
+  if (!input) return null;
+  const scalars = [input.peak_drive, input.mean_drive, input.intensity].filter((value): value is number => Number.isFinite(value));
+  const arrays = [input.values, Array.isArray(input.drive) ? input.drive : undefined, input.photoreceptor_drive]
+    .flatMap(values => values?.filter(Number.isFinite) ?? []);
+  if (typeof input.drive === 'number' && Number.isFinite(input.drive)) scalars.push(input.drive);
+  const values = [...scalars, ...arrays];
+  return values.length ? Math.max(0, ...values) : null;
+}
+
 export default function BrainView({recording, step}: {recording: Recording; step: ReplayStep | null}) {
   const host = useRef<HTMLDivElement>(null);
   const mesh = useRef<THREE.InstancedMesh | null>(null);
@@ -68,11 +83,13 @@ export default function BrainView({recording, step}: {recording: Recording; step
   const [sceneVersion, setSceneVersion] = useState(0);
   const [activity, setActivity] = useState<ActivitySummary>({count: 0, peak: 0});
   const [regionNormalized, setRegionNormalized] = useState(true);
+  const [visualInputMode, setVisualInputMode] = useState<'drive' | 'rates'>('rates');
   const bundle = recording.connectomeData;
 
   useEffect(() => {
     populationHistory.current.clear();
     neuronPeakHistory.current.clear();
+    setVisualInputMode('rates');
   }, [recording.id]);
 
   const neurons = useMemo<DrawNeuron[]>(() => {
@@ -224,16 +241,20 @@ export default function BrainView({recording, step}: {recording: Recording; step
 
     const visualPositions: number[] = [];
     neurons.forEach((n, i) => {
-      if (n.group === 'ol_sensory' || n.group === 'visual_projection') {
+      const flags = bundle?.flags[n.index] ?? 0;
+      if ((flags & 3) || n.group === 'ol_sensory' || n.group === 'visual_projection') {
         const j = i * 3;
         visualPositions.push(positions[j], positions[j + 1], positions[j + 2]);
       }
     });
     const visualGeometry = new THREE.BufferGeometry();
     visualGeometry.setAttribute('position', new THREE.Float32BufferAttribute(visualPositions, 3));
-    const visualMat = new THREE.PointsMaterial({color: 0x35c7f0, map: glowMap, size: .1, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false});
+    const visualMat = new THREE.PointsMaterial({color: 0xffd778, map: glowMap, size: .16, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
     visualMaterial.current = visualMat;
-    scene.add(new THREE.Points(visualGeometry, visualMat));
+    const visualPoints = new THREE.Points(visualGeometry, visualMat);
+    visualPoints.renderOrder = 18;
+    visualPoints.frustumCulled = false;
+    scene.add(visualPoints);
     // The activity effect can run before Three has finished building these
     // buffers. Re-run it once the scene is ready so the paused first frame is
     // illuminated too, rather than waiting for playback to advance a step.
@@ -282,7 +303,7 @@ export default function BrainView({recording, step}: {recording: Recording; step
       }
       haloMaterial.size = .68 + .26 * (.5 + .5 * Math.sin(now * .012));
       coreMaterial.size = .17 + .07 * (.5 + .5 * Math.sin(now * .015));
-      visualMat.opacity = visualLevel.current * (.24 + .12 * (.5 + .5 * Math.sin(now * .01)));
+      visualMat.opacity = visualLevel.current * (.62 + .24 * (.5 + .5 * Math.sin(now * .012)));
       controls.update(); renderer.render(scene, camera);
     };
     frame = requestAnimationFrame(tick);
@@ -363,7 +384,22 @@ export default function BrainView({recording, step}: {recording: Recording; step
       normalizeRecent(populationRates.get('ol_sensory') ?? 0, populationHistory.current.get('ol_sensory')),
       normalizeRecent(populationRates.get('visual_projection') ?? 0, populationHistory.current.get('visual_projection')),
     );
-    visualLevel.current = Math.min(1, regionNormalized ? visualNormalized * .38 : visualRaw);
+    const retinalInput = step?.activity?.retinal_input ?? step?.activity?.retina ?? step?.activity?.visual_input;
+    const retinalDrive = retinalMagnitude(retinalInput);
+    if (retinalDrive != null) {
+      rememberRate(populationHistory.current, '__retinal_input__', retinalDrive);
+      const recent = populationHistory.current.get('__retinal_input__') ?? [];
+      const recentHigh = Math.max(1, ...recent);
+      const normalizedDrive = retinalDrive <= 1 ? retinalDrive : retinalDrive / recentHigh;
+      visualLevel.current = retinalDrive > 0 ? Math.min(1, .42 + normalizedDrive * .58) : 0;
+      setVisualInputMode('drive');
+    } else {
+      // Format 2.1 fallback: these are recorded visual-pathway rates, not a
+      // fabricated retina signal. Keep the full overlay independent of the
+      // cosmetically thinned resting optic-lobe layer.
+      visualLevel.current = visualRaw > 0 ? Math.min(1, .38 + (regionNormalized ? visualNormalized : visualRaw) * .5) : 0;
+      setVisualInputMode('rates');
+    }
     setActivity({count: activeCount, peak});
   }, [neurons, step, recording, bundle, sceneVersion, regionNormalized]);
 
@@ -372,7 +408,7 @@ export default function BrainView({recording, step}: {recording: Recording; step
     <div className="brain-title"><span><Sparkles/> MALECNS // LIVE FIRING</span><strong>{(bundle?.count ?? drawCount).toLocaleString()}</strong><small>{bundle ? `${drawCount.toLocaleString()} positioned · optic rest thinned · all firing shown` : `${drawCount} sampled neurons · activity synced to frame`}</small></div>
     <div className="activity-meter" role="status" aria-label={`${activity.count} firing neurons, ${activity.peak.toFixed(1)} hertz peak`}><b>{activity.count.toLocaleString()}</b> FIRING <span>{activity.peak.toFixed(1)} Hz PEAK</span></div>
     <div className="reset-view" title="Drag to rotate · scroll to zoom"><MousePointer2/> DRAG TO ORBIT <Maximize2/></div>
-    <div className="activity-legend"><span><i/> FIRING</span><span><i/> DECODER INPUT</span><span><i/> RESTING</span></div>
+    <div className="activity-legend"><span className="firing-key"><i/> FIRING</span><span className="visual-key"><i/> {visualInputMode === 'drive' ? 'RETINAL INPUT · DRIVE' : 'VISUAL PATHWAY · RATE'}</span><span className="decoder-key"><i/> DECODER INPUT</span><span className="resting-key"><i/> RESTING</span></div>
     <div className="display-scale"><button onClick={() => setRegionNormalized(value => !value)}>{regionNormalized ? 'REGION NORMALIZED' : 'RAW GLOBAL SCALE'}</button><span>{regionNormalized ? 'brightness normalized per region · deep brain fires at lower rates' : 'raw global Hz brightness · retina naturally dominates'}</span></div>
     <div className="position-note">{bundle ? '● MALECNS v1.0 · RECORDED COORDINATES' : '◇ V1 HAS NO COORDINATES — DISPLAY LAYOUT IS ANNOTATED'}</div>
   </div>;
