@@ -84,6 +84,11 @@ def run_arm_episode(cfg: dict, scen_cfg: dict, env, engine, vision_kind,
             env.set_seed(seed)
         obs = env.reset()
         engine.reset()
+        from flydoom.neural.settle import settle_episode_start
+        settle_meta = settle_episode_start(
+            engine, vision, vision_kind, obs.frame, decoder,
+            engine.connectome, steps_neural, dt_neural,
+            float(motor_cfg.get("settle_ms", 0.0)))
         if unstuck:
             unstuck.reset()
         scheduler.prime(encode_state(obs, env.available_actions))
@@ -175,6 +180,7 @@ def run_arm_episode(cfg: dict, scen_cfg: dict, env, engine, vision_kind,
         "attack_aimed_count": attack_aimed,
         "unstuck_triggers": unstuck.triggers if unstuck else 0,
         "unstuck_escapes": unstuck.escapes if unstuck else 0,
+        "settle": settle_meta,
         "controller_steps": step_i + 1,
         "wall_s": round(wall_s, 1),
         "jev_decisions": scheduler.decisions_made,

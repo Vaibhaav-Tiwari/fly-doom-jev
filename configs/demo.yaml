@@ -124,6 +124,12 @@ motor:
                               # neural-imbalance gate that starved attack)
   attack_aim_gate: 1.0        # legacy neural fallback gate (used only when the
                               # loop passes no geometry; tests)
+  settle_ms: 400              # episode-start settle: brain runs on the spawn
+                              # frame this many neural ms with motor MUTED (the
+                              # deterministic power-on surge decoded turn=+38.57
+                              # on every first step); the settled mean turn
+                              # imbalance becomes the turn-zero calibration
+                              # (stored in episode metrics as settle.turn_offset)
   threshold: 0.02             # population_bank fallback only
 
 scenario_profiles:            # per-scenario control overrides, deep-merged over
