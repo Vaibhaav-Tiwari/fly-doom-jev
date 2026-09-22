@@ -184,13 +184,12 @@ export default function App() {
     </header>
     <main>
       <div className="headline">
-        <div><span>{mode === 'live' ? 'LIVE FROM THE CONNECTOME' : 'MEET THE PILOT'}</span><h1>211K neurons.<br/><em>One tiny gamer.</em></h1></div>
+        <div><span>{mode === 'live' ? 'LIVE FROM THE CONNECTOME' : 'MEET THE PILOT'}</span><h1>211K neurons. <em>One tiny gamer.</em></h1></div>
         <p>{mode === 'live' ? 'Start a fresh arena and watch the fly see, think, and act in real time. Every run becomes a replay.' : 'Recorded signals ripple through a fruit fly connectome and become moves in DOOM. Hit play, then click an action to see the neurons behind it.'}</p>
         <button className={liveRunning ? 'live-cta' : ''} onClick={mode === 'live' ? startLive : toggleRecording}>{mode === 'live' ? (liveRunning ? <RotateCcw/> : <Play/>) : (playing ? <Pause/> : <Play/>)} {mode === 'live' ? (liveRunning ? 'START A NEW RUN' : 'PLAY LIVE') : (playing ? 'PAUSE THE FLY' : 'WATCH THE FLY THINK')}</button>
       </div>
       {mode === 'recorded' && livePhase === 'offline' && <div className="offline-banner"><Radio/> {liveNotice} <button onClick={() => switchMode('live')}>TRY LIVE AGAIN</button></div>}
       <section className="hero">
-        <div className="brain-hero"><BrainView recording={recording} step={step}/></div>
         <div className="game-side">
           <div className="game-head"><span>DOOM // {mode === 'live' ? 'LIVE FEED' : 'RECORDED FEED'}</span><div><i/> {mode === 'live' ? livePhase.toUpperCase() : 'SYNCED'}{mode === 'live' && liveSnapshot?.game?.enemies != null ? ` · ${liveSnapshot.game.enemies} ENEMIES` : ''}</div></div>
           <DoomViewport recording={recording} step={step} mode={mode}/>
@@ -201,12 +200,15 @@ export default function App() {
             <div><Clock3/><span>ALIVE</span><b>{Number(state.alive_s ?? (step?.t_ms ? step.t_ms / 1000 : 0)).toFixed(1)}s</b></div>
           </div>
         </div>
-      </section>
-      <section className="signal-strip">
-        <div className="current-action"><small>MOTOR OUTPUT</small><div style={{'--accent': actionColor[action] ?? '#a8b9aa'} as React.CSSProperties}><i/><strong>{action.replaceAll('_', ' ')}</strong><span>{pct(step?.motor?.confidence ?? 0)} confidence</span></div></div>
-        <div className="caused-by"><small>NEURAL DRIVE</small><div>{contributors.length ? contributors.map((population, index) => <span className="active" key={population}><i style={{opacity: 1 - index * .25}}/>{population.replaceAll('_', ' ')} <b>{contributionIndices.length ? `${contributionIndices.length} exact neuron${contributionIndices.length === 1 ? '' : 's'}` : `${Math.round(step?.populations?.[population]?.mean_rate_hz ?? 0)} Hz`}</b></span>) : <span>Waiting for a motor action</span>}</div><p><Info/> Recorded decoder inputs for this action.</p></div>
-        <div className="jev-glance"><small><Volume2/> JEV · {step?.jev?.model ?? 'WAITING'} <b>{step?.jev?.is_mock === false ? 'LIVE' : step?.jev ? 'MOCK' : '—'}</b></small><div className="jev-meta">{choices.map(([question, value]) => <span key={question}>{question.replaceAll('_', ' ')}: <b>{value.replaceAll('_', ' ')}</b></span>)}<em>{step?.jev?.latency_ms?.toFixed(0) ?? '—'} ms · {usage ? `${(usage.input_tokens ?? 0) + (usage.output_tokens ?? 0)} tokens` : ''}</em></div>{thinking.slice(0, 3).map(([question, probability]) => <div key={question}><span>{question.replaceAll('_', ' ')}</span><i><b style={{width: pct(probability)}}/></i><em>{pct(probability)}{questionConfidence[question] != null ? <small> · c{pct(questionConfidence[question])}</small> : null}</em></div>)}</div>
-        <div className="scores"><small>ACTION SCORES</small>{scores.slice(0, 5).map(([name, score]) => <div className={name === action ? 'active' : ''} key={name}><span>{name.replaceAll('_', ' ')}</span><b>{score.toFixed(2)}</b></div>)}</div>
+        <div className="right-rail">
+          <div className="brain-hero"><BrainView recording={recording} step={step}/></div>
+          <section className="signal-strip">
+            <div className="current-action"><small>MOTOR OUTPUT</small><div style={{'--accent': actionColor[action] ?? '#a8b9aa'} as React.CSSProperties}><i/><strong>{action.replaceAll('_', ' ')}</strong><span>{pct(step?.motor?.confidence ?? 0)} confidence</span></div></div>
+            <div className="caused-by"><small>NEURAL DRIVE</small><div>{contributors.length ? contributors.map((population, index) => <span className="active" key={population}><i style={{opacity: 1 - index * .25}}/>{population.replaceAll('_', ' ')} <b>{contributionIndices.length ? `${contributionIndices.length} exact neuron${contributionIndices.length === 1 ? '' : 's'}` : `${Math.round(step?.populations?.[population]?.mean_rate_hz ?? 0)} Hz`}</b></span>) : <span>Waiting for a motor action</span>}</div><p><Info/> Recorded decoder inputs for this action.</p></div>
+            <div className="jev-glance"><small><Volume2/> JEV · {step?.jev?.model ?? 'WAITING'} <b>{step?.jev?.is_mock === false ? 'LIVE' : step?.jev ? 'MOCK' : '—'}</b></small><div className="jev-meta">{choices.map(([question, value]) => <span key={question}>{question.replaceAll('_', ' ')}: <b>{value.replaceAll('_', ' ')}</b></span>)}<em>{step?.jev?.latency_ms?.toFixed(0) ?? '—'} ms · {usage ? `${(usage.input_tokens ?? 0) + (usage.output_tokens ?? 0)} tokens` : ''}</em></div>{thinking.slice(0, 3).map(([question, probability]) => <div key={question}><span>{question.replaceAll('_', ' ')}</span><i><b style={{width: pct(probability)}}/></i><em>{pct(probability)}{questionConfidence[question] != null ? <small> · c{pct(questionConfidence[question])}</small> : null}</em></div>)}</div>
+            <div className="scores"><small>ACTION SCORES</small>{scores.slice(0, 5).map(([name, score]) => <div className={name === action ? 'active' : ''} key={name}><span>{name.replaceAll('_', ' ')}</span><b>{score.toFixed(2)}</b></div>)}</div>
+          </section>
+        </div>
       </section>
       {mode === 'recorded' ? <ActionTimeline recording={recording} time={time} playing={playing} speed={speed} onPlay={toggleRecording} onSeek={seek} onSpeed={setSpeed}/> : <section className="live-bar"><div><i className={liveRunning ? 'on' : ''}/><span>{liveNotice}</span></div><b>{liveSnapshot?.run_id ?? 'NO RUN YET'}</b><span>EP {liveSnapshot?.game?.episode ?? '—'} · FRAME {liveSnapshot?.sequence ?? '—'} · {Number(liveSnapshot?.game?.alive_s ?? 0).toFixed(1)}s</span><button onClick={startLive}><RotateCcw/> FRESH GAME</button></section>}
       <div className="data-note">{mode === 'live' ? `LIVE CLOSED LOOP · ${liveSnapshot?.run_id ?? 'PRESS PLAY TO BEGIN'} · EVERY EPISODE IS RECORDED` : `REAL RECORDING · ${recording.header.recording_format_version ? 'FORMAT ' + recording.header.recording_format_version : 'FORMAT UNKNOWN'} · ${recording.metrics.steps} FRAMES · ${recording.subtitle}`}</div>

@@ -27,13 +27,15 @@ export function liveSnapshotToStep(snapshot: LiveSnapshot): ReplayStep {
   Object.entries(snapshot.populations ?? {}).forEach(([name, mean_rate_hz]) => {
     populations[name] = {mean_rate_hz: Number.isFinite(mean_rate_hz) ? mean_rate_hz : 0};
   });
+  const retinalInput = snapshot.retinal_input ?? snapshot.retina ?? snapshot.visual_input
+    ?? snapshot.activity?.retinal_input ?? snapshot.activity?.retina ?? snapshot.activity?.visual_input;
   return {
     kind: 'step',
     t_ms: (snapshot.game?.alive_s ?? 0) * 1000,
     controller_step: snapshot.sequence,
     frame: snapshot.frame,
     state: {...snapshot.game},
-    activity: snapshot.activity,
+    activity: retinalInput == null ? snapshot.activity : {...snapshot.activity, retinal_input: retinalInput},
     populations,
     motor: {
       selected,
