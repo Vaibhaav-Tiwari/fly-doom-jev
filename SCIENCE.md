@@ -24,6 +24,14 @@
   2 ms refractory, dt 1 ms. Photoreceptors and lamina interneurons are spiking
   proxies for what are in reality graded-potential cells — a declared
   approximation.
+- **Tonic baseline** (`neural.tonic`, chosen dynamics, not biology): a
+  calibrated per-neuron tonic current holds each coarse population near a
+  modest baseline rate (target 2 Hz; 0.5 Hz for motor readout populations;
+  retina excluded), because a network at rest attenuates cascades within a
+  few hops. Real fly neurons do have spontaneous rates, but our values are
+  calibrated for signal propagation, not measured. The motor decoder reads
+  evoked activity above the calibrated baseline. Targets, achieved baselines,
+  and current stats are recorded in every recording header (`neural.tonic`).
 - **Jev**: an artificial probabilistic decision module. In `live` mode this is
   TypeSafe's **System One** structured-probability API (`POST /v1/systemone`,
   model `jev-latest`): one request carries the typed environment state plus

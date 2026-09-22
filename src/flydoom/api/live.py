@@ -107,6 +107,8 @@ class LiveLoop(threading.Thread):
         cfg = self.cfg
         env = make_env(cfg)
         connectome, engine = build_neural(cfg)
+        from flydoom.neural.tonic import maybe_calibrate_tonic
+        tonic_meta = maybe_calibrate_tonic(cfg, connectome, engine)
         vision_kind, vision = build_vision(cfg, connectome)
         jev_client = self._make_jev()
         scheduler = JevScheduler(jev_client,
@@ -115,6 +117,8 @@ class LiveLoop(threading.Thread):
                            gain=float(cfg["bridge"].get("gain", 30.0)),
                            choice_mappings=cfg["bridge"].get("choice_mappings"))
         decoder = make_decoder(connectome, cfg)
+        if tonic_meta.get("enabled"):
+            decoder.set_baseline(engine.rate.copy())
         steps_neural, dt_neural, ms_per_tic = resolve_neural_steps(cfg)
         pop_sample = int(cfg["telemetry"].get("population_sample", 32))
         top_k = int(cfg["telemetry"].get("top_k", 256))
@@ -134,7 +138,7 @@ class LiveLoop(threading.Thread):
                     vision_kind=vision_kind, vision=vision, scheduler=scheduler,
                     jev_client=jev_client, bridge=bridge, decoder=decoder,
                     steps_neural=steps_neural, dt_neural=dt_neural,
-                    ms_per_tic=ms_per_tic,
+                    ms_per_tic=ms_per_tic, tonic_meta=tonic_meta,
                     pop_sample=pop_sample, top_k=top_k, motor_idx=motor_idx,
                     motor_ids=motor_ids, assets_ref=assets_ref, rec_cfg=rec_cfg,
                     step_period_s=step_period_s, connectome=connectome)
@@ -146,8 +150,9 @@ class LiveLoop(threading.Thread):
     # -------------------------------------------------------------- episode
     def _run_episode(self, episode_i, seed, env, engine, vision_kind, vision,
                      scheduler, jev_client, bridge, decoder, steps_neural,
-                     dt_neural, ms_per_tic, pop_sample, top_k, motor_idx,
-                     motor_ids, assets_ref, rec_cfg, step_period_s, connectome) -> None:
+                     dt_neural, ms_per_tic, tonic_meta, pop_sample, top_k,
+                     motor_idx, motor_ids, assets_ref, rec_cfg, step_period_s,
+                     connectome) -> None:
         import uuid
         run_id = (time.strftime("live-%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6])
         writer = RecordingWriter(rec_cfg.get("directory", "outputs/recordings"),
@@ -172,6 +177,7 @@ class LiveLoop(threading.Thread):
                        "steps_per_controller_step": steps_neural,
                        "ms_per_game_tic": round(ms_per_tic, 3),
                        "brain_ms_per_game_s": round(ms_per_tic * 35.0, 1),
+                       "tonic": tonic_meta,
                        "note": "brain time per game tic; the game runs slower "
                                "in wall time when this is raised"},
             "jev": {"mode": self.cfg["jev"].get("mode", "mock"),

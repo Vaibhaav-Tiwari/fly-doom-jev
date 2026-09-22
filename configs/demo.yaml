@@ -35,6 +35,14 @@ neural:
     tau_syn_ms: 5.0
     syn_delay_ms: 2.0
     rate_tau_ms: 100.0
+  tonic:                        # calibrated tonic baseline (CHOSEN DYNAMICS, not
+    enabled: true               # biology): each population sits near a modest
+    target_rate_hz: 2.0         # baseline rate so cascades propagate deep instead
+    max_current_mv: 9.0         # of attenuating at rest (threshold gap is 7 mV)
+    exclude: [ol_sensory]       # retina stays input-driven (quiet without input)
+    population_targets:         # lower targets for motor readouts: tonic alone
+      descending_neuron: 0.5    # must not cross decoder thresholds
+      vnc_motor: 0.5
 
 vision:
   pathway: photoreceptor      # photoreceptor (full graph) | mosaic (fixture fallback)

@@ -86,6 +86,7 @@ class NativeLIFEngine:
         self.g = np.zeros(self.n, dtype=np.float32)
         self.refractory = np.zeros(self.n, dtype=np.int16)
         self.drive = np.zeros(self.n, dtype=np.float32)
+        self.tonic = np.zeros(self.n, dtype=np.float32)  # calibrated baseline
         self.counts = np.zeros(self.n, dtype=np.int32)
         self.slots = int(round(syn_delay_ms / self.dt)) + 1
         self.queue = np.zeros(self.slots * self.n, dtype=np.int32)
@@ -121,7 +122,7 @@ class NativeLIFEngine:
         self.v.fill(self._state.rest)
         self.g.fill(0.0)
         self.refractory.fill(0)
-        self.drive.fill(0.0)
+        np.copyto(self.drive, self.tonic)  # tonic baseline survives resets
         self.queue_count.fill(0)
         self.rate.fill(0.0)
         self._state.cursor = 0
@@ -130,12 +131,22 @@ class NativeLIFEngine:
         self.total_spikes = 0
 
     # -- input -------------------------------------------------------------
+    def set_tonic(self, tonic: np.ndarray) -> None:
+        """Install a calibrated per-neuron tonic baseline current (mV).
+
+        Persists across reset(); per-step inject_input merges on top of it."""
+        tonic = np.ascontiguousarray(tonic, dtype=np.float32)
+        delta = tonic - self.tonic
+        np.copyto(self.tonic, tonic)
+        self.drive += delta  # keep current drive consistent with new baseline
+
     def inject_input(self, indices: np.ndarray, currents: np.ndarray) -> None:
         indices = np.ascontiguousarray(indices, dtype=np.int64)
-        self.drive[indices] = np.asarray(currents, dtype=np.float32)
+        self.drive[indices] = self.tonic[indices] + np.asarray(currents, dtype=np.float32)
 
     def clear_input(self, indices: np.ndarray) -> None:
-        self.drive[np.asarray(indices, dtype=np.int64)] = 0.0
+        idx = np.asarray(indices, dtype=np.int64)
+        self.drive[idx] = self.tonic[idx]
 
     # -- dynamics ----------------------------------------------------------
     def step(self, n_steps: int = 1) -> np.ndarray:
