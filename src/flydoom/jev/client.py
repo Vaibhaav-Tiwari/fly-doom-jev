@@ -160,6 +160,17 @@ class LiveJevClient(JevClient):
     def name(self) -> str:
         return f"live:{self.model}"
 
+    def probe(self) -> dict:
+        """GET /models — verifies endpoint + key without spending a decision.
+
+        Raises on any failure (bad key, unreachable host, non-200)."""
+        import httpx
+        resp = httpx.get(f"{self.base_url}/models",
+                         headers={"Authorization": f"Bearer {self.api_key}"},
+                         timeout=10.0)
+        resp.raise_for_status()
+        return resp.json()
+
     def decide(self, state: EnvironmentState) -> JevDecision:
         import httpx
 

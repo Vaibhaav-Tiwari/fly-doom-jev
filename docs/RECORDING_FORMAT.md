@@ -33,7 +33,7 @@ always the header; then one `step` record per controller step; then an
   "kind": "header",
   "recording_format_version": "2.0",
   "created_at": 1790006832.4,
-  "run_kind": "recorded_experiment",
+  "run_kind": "recorded_experiment",   // or "live_session" (live server episodes)
   "software_version": "0.1.0",
   "seed": 42,
   "config": { "...": "full effective configuration" },
@@ -227,7 +227,9 @@ Notes for consumers:
 ```
 
 `episode_tics` / `survival_s` are game time (35 tics/s); `duration_s` is
-simulated neural time. `behavior` (2.1+) summarizes control quality honestly:
+simulated neural time. `reset_reason` (live sessions only) is
+`episode_finished` or `manual_reset` (POST /new aborted the episode early).
+`behavior` (2.1+) summarizes control quality honestly:
 turn-readout saturation fraction, fraction of turn steps that shrank the aim
 error |enemy_angle| (convention-free), and how often the agent attacked when
 an enemy was visible and close (< 0.4).
