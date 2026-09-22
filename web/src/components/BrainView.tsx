@@ -1,7 +1,6 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
 import * as THREE from 'three';
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js';
-import {Maximize2, MousePointer2, Sparkles} from 'lucide-react';
 import type {NeuronSample, Recording, ReplayStep, RetinalInput} from '../lib/types';
 
 const palette: Record<string, string> = {
@@ -30,7 +29,6 @@ function annotatedPosition(id: string, index: number, group: string): [number, n
 }
 
 type DrawNeuron = {index: number; position: [number, number, number]; group: string};
-type ActivitySummary = {count: number; peak: number};
 type RecentRates = Map<string, number[]>;
 
 function rememberRate(history: RecentRates, group: string, value: number) {
@@ -47,19 +45,11 @@ function normalizeRecent(value: number, samples: number[] | undefined) {
   return Math.max(0, Math.min(1, (value - low) / (high - low)));
 }
 
-function retinalMagnitude(input: RetinalInput | undefined): number | null {
-  if (typeof input === 'number') return Number.isFinite(input) ? Math.max(0, input) : null;
-  if (Array.isArray(input)) {
-    const values = input.filter(Number.isFinite);
-    return values.length ? Math.max(0, ...values) : null;
-  }
-  if (!input) return null;
-  const scalars = [input.peak_drive, input.mean_drive, input.intensity].filter((value): value is number => Number.isFinite(value));
-  const arrays = [input.values, Array.isArray(input.drive) ? input.drive : undefined, input.photoreceptor_drive]
-    .flatMap(values => values?.filter(Number.isFinite) ?? []);
-  if (typeof input.drive === 'number' && Number.isFinite(input.drive)) scalars.push(input.drive);
-  const values = [...scalars, ...arrays];
-  return values.length ? Math.max(0, ...values) : null;
+function retinalSamples(input: RetinalInput | undefined) {
+  if (!input || typeof input === 'number' || Array.isArray(input) || !input.indices?.length) return null;
+  const drive = Array.isArray(input.drive) ? input.drive : input.values ?? input.photoreceptor_drive;
+  if (!drive?.length) return null;
+  return {indices: input.indices, drive};
 }
 
 export default function BrainView({recording, step}: {recording: Recording; step: ReplayStep | null}) {
@@ -75,21 +65,19 @@ export default function BrainView({recording, step}: {recording: Recording; step
   const actionGeometry = useRef<THREE.BufferGeometry | null>(null);
   const firingHalo = useRef<THREE.PointsMaterial | null>(null);
   const firingCore = useRef<THREE.PointsMaterial | null>(null);
-  const visualMaterial = useRef<THREE.PointsMaterial | null>(null);
-  const visualLevel = useRef(0);
+  const retinaGeometry = useRef<THREE.BufferGeometry | null>(null);
   const populationHistory = useRef<RecentRates>(new Map());
   const neuronPeakHistory = useRef<RecentRates>(new Map());
   const [drawCount, setDrawCount] = useState(0);
   const [sceneVersion, setSceneVersion] = useState(0);
-  const [activity, setActivity] = useState<ActivitySummary>({count: 0, peak: 0});
-  const [regionNormalized, setRegionNormalized] = useState(true);
-  const [visualInputMode, setVisualInputMode] = useState<'drive' | 'rates'>('rates');
+  const [hasRetinalInput, setHasRetinalInput] = useState(false);
+  const regionNormalized = true;
   const bundle = recording.connectomeData;
 
   useEffect(() => {
     populationHistory.current.clear();
     neuronPeakHistory.current.clear();
-    setVisualInputMode('rates');
+    setHasRetinalInput(false);
   }, [recording.id]);
 
   const neurons = useMemo<DrawNeuron[]>(() => {
@@ -239,22 +227,19 @@ export default function BrainView({recording, step}: {recording: Recording; step
     actionPoints.frustumCulled = false;
     scene.add(actionPoints);
 
-    const visualPositions: number[] = [];
-    neurons.forEach((n, i) => {
-      const flags = bundle?.flags[n.index] ?? 0;
-      if ((flags & 3) || n.group === 'ol_sensory' || n.group === 'visual_projection') {
-        const j = i * 3;
-        visualPositions.push(positions[j], positions[j + 1], positions[j + 2]);
-      }
-    });
-    const visualGeometry = new THREE.BufferGeometry();
-    visualGeometry.setAttribute('position', new THREE.Float32BufferAttribute(visualPositions, 3));
-    const visualMat = new THREE.PointsMaterial({color: 0xffd778, map: glowMap, size: .16, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
-    visualMaterial.current = visualMat;
-    const visualPoints = new THREE.Points(visualGeometry, visualMat);
-    visualPoints.renderOrder = 18;
-    visualPoints.frustumCulled = false;
-    scene.add(visualPoints);
+    // The retina layer is populated only from explicit backend drive samples.
+    // Unpositioned photoreceptors are skipped rather than assigned fake points.
+    const retinaCapacity = 4096;
+    const retinaGeom = new THREE.BufferGeometry();
+    retinaGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(retinaCapacity * 3), 3));
+    retinaGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(retinaCapacity * 3), 3));
+    retinaGeom.setDrawRange(0, 0);
+    retinaGeometry.current = retinaGeom;
+    const retinaMat = new THREE.PointsMaterial({color: 0xffd778, map: glowMap, size: .52, vertexColors: true, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
+    const retinaPoints = new THREE.Points(retinaGeom, retinaMat);
+    retinaPoints.renderOrder = 18;
+    retinaPoints.frustumCulled = false;
+    scene.add(retinaPoints);
     // The activity effect can run before Three has finished building these
     // buffers. Re-run it once the scene is ready so the paused first frame is
     // illuminated too, rather than waiting for playback to advance a step.
@@ -303,22 +288,22 @@ export default function BrainView({recording, step}: {recording: Recording; step
       }
       haloMaterial.size = .68 + .26 * (.5 + .5 * Math.sin(now * .012));
       coreMaterial.size = .17 + .07 * (.5 + .5 * Math.sin(now * .015));
-      visualMat.opacity = visualLevel.current * (.62 + .24 * (.5 + .5 * Math.sin(now * .012)));
+      retinaMat.size = .46 + .16 * (.5 + .5 * Math.sin(now * .012));
       controls.update(); renderer.render(scene, camera);
     };
     frame = requestAnimationFrame(tick);
     return () => {
       cancelAnimationFrame(frame); observer.disconnect(); controls.dispose();
       geometry.dispose(); material.dispose(); activeGeometry.dispose(); haloMaterial.dispose(); coreMaterial.dispose();
-      actionGeom.dispose(); actionMaterial.dispose(); visualGeometry.dispose(); visualMat.dispose(); glowMap.dispose(); renderer.dispose(); renderer.domElement.remove();
-      mesh.current = null; firingGeometry.current = null; actionGeometry.current = null;
+      actionGeom.dispose(); actionMaterial.dispose(); retinaGeom.dispose(); retinaMat.dispose(); glowMap.dispose(); renderer.dispose(); renderer.domElement.remove();
+      mesh.current = null; firingGeometry.current = null; actionGeometry.current = null; retinaGeometry.current = null;
     };
   }, [neurons, bundle, recording]);
 
   useEffect(() => {
     const t = targets.current, flags = contributors.current, map = indexToInstance.current, positions = normalized.current;
-    const activeGeom = firingGeometry.current, actionGeom = actionGeometry.current;
-    if (!t || !flags || !map || !positions || !activeGeom || !actionGeom) return;
+    const activeGeom = firingGeometry.current, actionGeom = actionGeometry.current, retinaGeom = retinaGeometry.current;
+    if (!t || !flags || !map || !positions || !activeGeom || !actionGeom || !retinaGeom) return;
     t.fill(0); flags.fill(0);
     const top = step?.activity?.top ?? [];
     const motorIndices = recording.header.motor_population?.indices ?? [];
@@ -379,37 +364,34 @@ export default function BrainView({recording, step}: {recording: Recording; step
     });
     actionPositions.needsUpdate = true;
     actionGeom.setDrawRange(0, actionCount);
-    const visualRaw = ((populationRates.get('ol_sensory') ?? 0) + (populationRates.get('visual_projection') ?? 0)) / Math.max(1, maxPopulation);
-    const visualNormalized = Math.max(
-      normalizeRecent(populationRates.get('ol_sensory') ?? 0, populationHistory.current.get('ol_sensory')),
-      normalizeRecent(populationRates.get('visual_projection') ?? 0, populationHistory.current.get('visual_projection')),
-    );
+
     const retinalInput = step?.activity?.retinal_input ?? step?.activity?.retina ?? step?.activity?.visual_input;
-    const retinalDrive = retinalMagnitude(retinalInput);
-    if (retinalDrive != null) {
-      rememberRate(populationHistory.current, '__retinal_input__', retinalDrive);
-      const recent = populationHistory.current.get('__retinal_input__') ?? [];
-      const recentHigh = Math.max(1, ...recent);
-      const normalizedDrive = retinalDrive <= 1 ? retinalDrive : retinalDrive / recentHigh;
-      visualLevel.current = retinalDrive > 0 ? Math.min(1, .42 + normalizedDrive * .58) : 0;
-      setVisualInputMode('drive');
-    } else {
-      // Format 2.1 fallback: these are recorded visual-pathway rates, not a
-      // fabricated retina signal. Keep the full overlay independent of the
-      // cosmetically thinned resting optic-lobe layer.
-      visualLevel.current = visualRaw > 0 ? Math.min(1, .38 + (regionNormalized ? visualNormalized : visualRaw) * .5) : 0;
-      setVisualInputMode('rates');
+    const retinal = retinalSamples(retinalInput);
+    const retinaPositions = retinaGeom.getAttribute('position') as THREE.BufferAttribute;
+    const retinaColors = retinaGeom.getAttribute('color') as THREE.BufferAttribute;
+    let retinaCount = 0;
+    if (retinal) {
+      const maxDrive = Math.max(1, ...retinal.drive);
+      retinal.indices.forEach((idx, i) => {
+        const instance = idx < map.length ? map[idx] : -1;
+        const drive = retinal.drive[i] ?? 0;
+        if (instance < 0 || drive <= 0 || retinaCount >= retinaPositions.count) return;
+        const src = instance * 3;
+        const intensity = .5 + .5 * Math.sqrt(drive / maxDrive);
+        retinaPositions.setXYZ(retinaCount, positions[src], positions[src + 1], positions[src + 2]);
+        retinaColors.setXYZ(retinaCount, intensity, intensity, intensity);
+        retinaCount++;
+      });
     }
-    setActivity({count: activeCount, peak});
+    retinaPositions.needsUpdate = true;
+    retinaColors.needsUpdate = true;
+    retinaGeom.setDrawRange(0, retinaCount);
+    setHasRetinalInput(Boolean(retinal));
   }, [neurons, step, recording, bundle, sceneVersion, regionNormalized]);
 
   return <div className="brain-stage">
     <div ref={host} className="brain-canvas"/>
-    <div className="brain-title"><span><Sparkles/> MALECNS // LIVE FIRING</span><strong>{(bundle?.count ?? drawCount).toLocaleString()}</strong><small>{bundle ? `${drawCount.toLocaleString()} positioned · optic rest thinned · all firing shown` : `${drawCount} sampled neurons · activity synced to frame`}</small></div>
-    <div className="activity-meter" role="status" aria-label={`${activity.count} firing neurons, ${activity.peak.toFixed(1)} hertz peak`}><b>{activity.count.toLocaleString()}</b> FIRING <span>{activity.peak.toFixed(1)} Hz PEAK</span></div>
-    <div className="reset-view" title="Drag to rotate · scroll to zoom"><MousePointer2/> DRAG TO ORBIT <Maximize2/></div>
-    <div className="activity-legend"><span className="firing-key"><i/> FIRING</span><span className="visual-key"><i/> {visualInputMode === 'drive' ? 'RETINAL INPUT · DRIVE' : 'VISUAL PATHWAY · RATE'}</span><span className="decoder-key"><i/> DECODER INPUT</span><span className="resting-key"><i/> RESTING</span></div>
-    <div className="display-scale"><button onClick={() => setRegionNormalized(value => !value)}>{regionNormalized ? 'REGION NORMALIZED' : 'RAW GLOBAL SCALE'}</button><span>{regionNormalized ? 'brightness normalized per region · deep brain fires at lower rates' : 'raw global Hz brightness · retina naturally dominates'}</span></div>
-    <div className="position-note">{bundle ? '● MALECNS v1.0 · RECORDED COORDINATES' : '◇ V1 HAS NO COORDINATES — DISPLAY LAYOUT IS ANNOTATED'}</div>
+    <div className="brain-title"><span>BRAIN · MALECNS V1.0 · {(bundle?.count ?? drawCount).toLocaleString()} NEURONS</span></div>
+    <div className="activity-legend"><span className="firing-key"><i/> FIRING</span>{hasRetinalInput && <span className="visual-key"><i/> RETINAL INPUT · DRIVE</span>}<span className="decoder-key"><i/> ACTION INPUT</span><span className="resting-key"><i/> RESTING</span></div>
   </div>;
 }
