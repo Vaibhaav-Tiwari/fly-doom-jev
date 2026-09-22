@@ -90,3 +90,8 @@ recording:
 api:
   host: 127.0.0.1
   port: 8420
+
+live:                           # live mode server (python -m flydoom.api.live, make live)
+  fps: 6                        # HTTP frame publish cap (sim runs every controller step)
+  frame_size: [640, 480]        # W x H of the data-url JPEG in GET /state
+  jpeg_quality: 75

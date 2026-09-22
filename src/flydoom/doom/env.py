@@ -93,6 +93,14 @@ class VizDoomEnv:
         obs = self._observe() if not done else self._last_obs
         return StepResult(obs, reward, done, {})
 
+    def set_seed(self, seed: int) -> None:
+        """New seed for the NEXT reset (live mode: fresh spawn per episode)."""
+        self.game.set_seed(int(seed))
+
+    def live_enemy_count(self) -> int:
+        """Enemies currently tracked (labels minus corpse-filtered objects)."""
+        return int(sum(1 for v in self._label_still.values() if v < self.corpse_steps))
+
     def close(self) -> None:
         self.game.close()
 
@@ -225,6 +233,12 @@ class FixtureEnv:
 
     def close(self) -> None:
         pass
+
+    def set_seed(self, seed: int) -> None:
+        self._rng = np.random.default_rng(int(seed))
+
+    def live_enemy_count(self) -> int:
+        return int(self.enemy_alive)
 
     def _rel_bearing(self) -> float:
         return ((self.enemy_bearing - self.angle + 180.0) % 360.0) - 180.0
