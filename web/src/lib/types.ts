@@ -13,6 +13,7 @@ export interface CatalogItem {id:string;title:string;subtitle:string;path:string
 
 export interface LiveSnapshot {
   status: string;
+  scenario?: 'fly_arena' | 'e1m1';
   run_id?: string;
   sequence?: number;
   generated_at_ms?: number;
