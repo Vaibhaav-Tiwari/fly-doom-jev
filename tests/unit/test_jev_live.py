@@ -178,3 +178,17 @@ def test_scheduler_tracks_cost(monkeypatch, obs):
     assert sched.decisions_made == 2
     assert sched.total_cost_usd == pytest.approx(2 * 0.0042)
     assert sched.credits_remaining_usd == 9.99
+
+
+def test_subset_questions_and_memory_payload(live_client, monkeypatch, obs):
+    capture = {}
+    _mock_post(monkeypatch, payload=_systemone_payload(), capture=capture)
+    memory = {"recent_episodes": ["survived 12.0s, 1 kills, died"],
+              "current_intent": "engage"}
+    d = live_client.decide(encode_state(obs), questions=["ATTACK", "INTENT"],
+                           memory=memory)
+    sent = capture["json"]
+    assert set(sent["questions"]) == {"ATTACK", "INTENT"}  # subset sent
+    assert sent["state"]["memory"] == memory               # memory in state
+    assert set(d.probabilities) == {"ATTACK", "INTENT"}
+    assert d.meta["choices"]["INTENT"] == "engage"  # first INTENT criterion

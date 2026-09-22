@@ -112,8 +112,11 @@ class LiveLoop(threading.Thread):
         tonic_meta = maybe_calibrate_tonic(cfg, connectome, engine)
         vision_kind, vision = build_vision(cfg, connectome)
         jev_client = self._make_jev()
-        scheduler = JevScheduler(jev_client,
-                                 cadence_hz=float(cfg["jev"].get("cadence_hz", 3.0)))
+        jev_cfg = cfg["jev"]
+        scheduler = JevScheduler(
+            jev_client, cadence_hz=float(jev_cfg.get("cadence_hz", 3.0)),
+            fast_questions=tuple(jev_cfg.get("fast_questions", ["ATTACK"])),
+            strategy_period_s=jev_cfg.get("strategy_period_s"))
         bridge = JevBridge(connectome, cfg["bridge"]["mappings"],
                            gain=float(cfg["bridge"].get("gain", 30.0)),
                            choice_mappings=cfg["bridge"].get("choice_mappings"))
@@ -123,6 +126,11 @@ class LiveLoop(threading.Thread):
         from flydoom.integration.weighting import (apply_action_weighting,
                                                    jev_action_weights)
         weighting = bool(cfg["jev"].get("action_weighting", False))
+        intent_biases = cfg["jev"].get("intent_biases")
+
+        def weights_of(scores, decision):
+            return jev_action_weights(scores, decision,
+                                      intent_biases=intent_biases)
         from flydoom.neural.plasticity import (maybe_make_plasticity,
                                                shaped_reward)
         plasticity = maybe_make_plasticity(cfg, connectome, engine)
@@ -158,7 +166,7 @@ class LiveLoop(threading.Thread):
                     steps_neural=steps_neural, dt_neural=dt_neural,
                     ms_per_tic=ms_per_tic, tonic_meta=tonic_meta,
                     weighting=weighting, apply_weighting=apply_action_weighting,
-                    weights_of=jev_action_weights, scenario=scenario,
+                    weights_of=weights_of, scenario=scenario,
                     pop_sample=pop_sample, top_k=top_k, motor_idx=motor_idx,
                     motor_ids=motor_ids, assets_ref=assets_ref, rec_cfg=rec_cfg,
                     step_period_s=step_period_s, connectome=connectome,
@@ -236,6 +244,10 @@ class LiveLoop(threading.Thread):
 
         t_start = time.time()
         prev_obs = obs
+        from collections import deque
+        dmg_window = max(2, round(35.0 / env.frame_skip))  # ~1 s of game time
+        health_hist: deque = deque(maxlen=dmg_window + 1)
+        health_hist.append(float(obs.health))
         jev_d0 = scheduler.decisions_made
         jev_e0 = scheduler.errors
         sequence = 0
@@ -252,7 +264,9 @@ class LiveLoop(threading.Thread):
                 reset_reason = "manual_reset"
                 break
             t_step = time.perf_counter()
-            state = encode_state(obs, env.available_actions)
+            state = encode_state(obs, env.available_actions,
+                                 recent_damage=max(0.0, health_hist[0]
+                                                   - float(obs.health)))
             scheduler.update_state(state)
             decision = scheduler.get_decision()
 
@@ -287,6 +301,7 @@ class LiveLoop(threading.Thread):
             result = env.step(combo)
             obs = result.observation
             total_reward += result.reward
+            health_hist.append(float(obs.health))
             if plasticity:
                 plasticity.note_reward(shaped_reward(self.cfg, prev_obs, obs,
                                                      result.done))
@@ -341,6 +356,7 @@ class LiveLoop(threading.Thread):
                     "probabilities": decision.probabilities,
                     "latency_ms": round(decision.latency_ms, 2),
                     "usage": decision.meta.get("usage"),
+                    "intent": (decision.meta.get("choices") or {}).get("INTENT"),
                     "choices": decision.meta.get("choices"),
                     "choice_probabilities": decision.meta.get("choice_probabilities"),
                 },
@@ -415,6 +431,10 @@ class LiveLoop(threading.Thread):
         }
         writer.write_episode_end({"episode": episode})
         writer.close()
+        cause = ("died (health 0)" if float(obs.health) <= 0
+                 else reset_reason.replace("_", " "))
+        scheduler.note_episode_outcome(
+            f"survived {episode['survival_s']}s, {int(obs.kills)} kills, {cause}")
         log.info("live episode %d done: run_id=%s tics=%d kills=%d reason=%s",
                  episode_i, run_id, int(obs.episode_tic), int(obs.kills),
                  reset_reason)

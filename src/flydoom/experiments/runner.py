@@ -165,7 +165,11 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
     tonic_meta = maybe_calibrate_tonic(cfg, connectome, engine)
     vision_kind, vision = build_vision(cfg, connectome)
     jev_client = make_jev_client(cfg)
-    scheduler = JevScheduler(jev_client, cadence_hz=float(cfg["jev"].get("cadence_hz", 3.0)))
+    jev_cfg = cfg["jev"]
+    scheduler = JevScheduler(
+        jev_client, cadence_hz=float(jev_cfg.get("cadence_hz", 3.0)),
+        fast_questions=tuple(jev_cfg.get("fast_questions", ["ATTACK"])),
+        strategy_period_s=jev_cfg.get("strategy_period_s"))
     bridge = JevBridge(connectome, cfg["bridge"]["mappings"],
                        gain=float(cfg["bridge"].get("gain", 30.0)),
                        choice_mappings=cfg["bridge"].get("choice_mappings"))
@@ -177,6 +181,7 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
     from flydoom.integration.weighting import (apply_action_weighting,
                                                jev_action_weights)
     weighting = bool(cfg["jev"].get("action_weighting", False))
+    intent_biases = cfg["jev"].get("intent_biases")
     from flydoom.neural.plasticity import (maybe_make_plasticity,
                                            shaped_reward)
     plasticity = maybe_make_plasticity(cfg, connectome, engine)
@@ -243,10 +248,16 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
         realtime = bool(cfg["environment"].get("realtime", False))
         step_period_s = env.frame_skip / 35.0  # ViZDoom ticrate
         prev_obs = obs
+        from collections import deque
+        dmg_window = max(2, round(35.0 / env.frame_skip))  # ~1 s of game time
+        health_hist: deque = deque(maxlen=dmg_window + 1)
+        health_hist.append(float(obs.health))
         step_i = 0
         for step_i in range(max_steps):
             t_step = time.perf_counter()
-            state = encode_state(obs, env.available_actions)
+            recent_damage = max(0.0, health_hist[0] - float(obs.health))
+            state = encode_state(obs, env.available_actions,
+                                 recent_damage=recent_damage)
             scheduler.update_state(state)
             decision = scheduler.get_decision()
 
@@ -279,11 +290,13 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
             decoded = decoder.decode(engine.rate)
             if weighting:
                 decoded = apply_action_weighting(
-                    decoded, jev_action_weights(list(decoded["scores"]), decision))
+                    decoded, jev_action_weights(list(decoded["scores"]), decision,
+                                                intent_biases=intent_biases))
             combo = decoded.get("combo") or [decoded["selected"]]
             result = env.step(combo)
             obs = result.observation
             total_reward += result.reward
+            health_hist.append(float(obs.health))
             if plasticity:
                 plasticity.note_reward(shaped_reward(cfg, prev_obs, obs,
                                                      result.done))

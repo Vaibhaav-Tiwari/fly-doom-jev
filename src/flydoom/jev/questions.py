@@ -20,6 +20,7 @@ QUESTION_BANK: dict[str, str] = {
     "MOVEMENT_INTENT": "Confidence in the best immediate movement (choice).",
     "TARGET_PRIORITY": "Confidence in which enemy to prioritize (choice).",
     "ENGAGEMENT_CONFIDENCE": "Confidence that engaging now will succeed (0-1).",
+    "INTENT": "Strategic intent for the next ~1-2 s (choice; persists between calls).",
 }
 
 # System One question specs, keyed by the same names. criteria reference the
@@ -111,6 +112,33 @@ SYSTEMONE_QUESTIONS: dict[str, dict] = {
             "most_threatening": "the enemy posing the greatest danger",
             "supplies": "ammunition or health pickups",
             "none": "no target; keep searching",
+        },
+    },
+    "INTENT": {
+        # Strategy-layer question: asked at LOW cadence (~1.5 s, or on salient
+        # events); the winning intent persists between calls and biases the
+        # motor decoder. Jev = strategy, brain = reflexes.
+        "type": "choice",
+        "instructions": "Choose the strategic INTENT for the next 1-2 seconds of "
+                        "play. You are the strategy layer of a fly-brain controller "
+                        "playing DOOM; fast reflexes (aiming, firing) are handled "
+                        "by the brain between your calls, so pick a posture, not "
+                        "individual actions. State fields: enemy_in_view, "
+                        "aim_offset_deg (0 = centered), enemy_distance (0 = "
+                        "point-blank, 1 = far), health, ammo, "
+                        "recent_damage_taken (hp lost in the last second), kills, "
+                        "alive_s. state.memory.recent_episodes lists how your "
+                        "recent episodes ended — if you keep dying fast, try a "
+                        "different posture.",
+        "criteria": {
+            "engage": "close with the visible enemy and fight",
+            "retreat": "increase distance from the threat (low health or heavy "
+                       "recent damage)",
+            "circle": "keep turning to search / flank while staying mobile",
+            "advance": "move forward to explore or close distance (no urgent "
+                       "threat)",
+            "attack_now": "enemy is in range and roughly centered — press the "
+                          "attack immediately",
         },
     },
 }
