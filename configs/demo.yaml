@@ -128,6 +128,11 @@ motor:
                               # neural-imbalance gate that starved attack)
   attack_aim_gate: 1.0        # legacy neural fallback gate (used only when the
                               # loop passes no geometry; tests)
+  aim_assist_hold_steps: 2    # reticle held on an enemy this many controller steps
+                              # with no neural shot -> assisted attack fires (the
+                              # spike trigger stays primary; 0 disables). Owner
+                              # rule: enemy in front -> keep shooting. Labeled
+                              # motor.attack_assisted in telemetry
   settle_ms: 400              # episode-start settle: brain runs on the spawn
                               # frame this many neural ms with motor MUTED (the
                               # deterministic power-on surge decoded turn=+38.57

@@ -143,3 +143,18 @@ def test_unstuck_escape_deadline_expires():
     # movement AFTER the deadline earns no credit
     u.update(120.0, 100.0, False, 9.0)
     assert u.pop_escape() is False and u.escapes == 0
+
+
+def test_aim_assist_covers_missed_spikes_only():
+    from flydoom.motor.reflexes import AimAssistReflex
+    a = AimAssistReflex(hold_steps=2)
+    # spike shots keep priority and reset the streak
+    assert not a.update(True, ["forward"])
+    assert not a.update(True, ["attack"])          # neural shot: no assist
+    assert not a.update(True, ["forward"])         # streak restarts at 1
+    assert a.update(True, ["forward"])             # 2 held steps, no shot
+    assert a.update(True, [])                      # still aimed: keeps firing
+    assert not a.update(False, [])                 # gate closed: no shot
+    assert a.assists == 2
+    a.reset()
+    assert not a.update(True, [])                  # streak cleared

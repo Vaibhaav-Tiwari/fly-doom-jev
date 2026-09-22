@@ -207,6 +207,11 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
             window_s=float(unstuck_cfg.get("window_s", 2.5)),
             epsilon=float(unstuck_cfg.get("epsilon", 6.0)),
             turn_s=float(unstuck_cfg.get("turn_s", 1.0)))
+    assist = None
+    assist_hold = int(motor_cfg.get("aim_assist_hold_steps", 2))
+    if assist_hold > 0:
+        from flydoom.motor.reflexes import AimAssistReflex
+        assist = AimAssistReflex(hold_steps=assist_hold)
     pop_sample = int(cfg["telemetry"].get("population_sample", 32))
     top_k = int(cfg["telemetry"].get("top_k", 256))
     motor_idx, motor_ids = _motor_population(connectome)
@@ -338,6 +343,11 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
                 if forced:
                     combo = [forced]
                     decoded["selected"] = forced
+            assisted = False
+            if assist is not None and not forced:
+                assisted = assist.update(bool(aim), combo)
+                if assisted:
+                    combo = ["attack", *combo] if combo else ["attack"]
             result = env.step(combo)
             obs = result.observation
             total_reward += result.reward
@@ -372,6 +382,7 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
                              "confidence": round(float(decoded["confidence"]), 4),
                              "aim_ok": aim,
                              "attack_spiked": bool(decoded.get("attack_spiked", False)),
+                             "attack_assisted": bool(assisted),
                              "unstuck": bool(forced),
                              "neural_scores": decoded.get("neural_scores"),
                              "jev_weights": decoded.get("jev_weights"),

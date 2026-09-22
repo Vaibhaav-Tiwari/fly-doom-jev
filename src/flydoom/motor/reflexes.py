@@ -94,3 +94,37 @@ class UnstuckReflex:
                            else "turn_right")
         self.triggers += 1
         return self._direction
+
+
+class AimAssistReflex:
+    """Fire when the reticle has been held on an enemy without a neural shot.
+
+    The spike-triggered attack needs a DNg02_a spike to land on exactly the
+    step where the geometry gate is open; spikes are sparse (measured on live
+    recordings: ~0.15-0.4 spikes/step, both controllers converting only
+    ~25-35% of aim windows), so a sustained clear aim could go unanswered for
+    seconds. Owner rule: 'enemy in front -> keep shooting'. After hold_steps
+    consecutive aim_ok steps with no shot, append attack to the combo every
+    step the gate stays open (the engine's native weapon refire rate caps the
+    actual fire rate). Spike-triggered shots stay primary — the assist only
+    covers misses. Engineering reflex, not biology; labeled
+    motor.attack_assisted in telemetry."""
+
+    def __init__(self, hold_steps: int = 2):
+        self.hold_steps = int(hold_steps)
+        self._streak = 0
+        self.assists = 0
+
+    def reset(self) -> None:
+        self._streak = 0
+
+    def update(self, aim_ok: bool, combo: list[str]) -> bool:
+        """True when this step should get an assisted attack appended."""
+        if "attack" in combo:
+            self._streak = 0            # a shot (spike or assist) happened
+            return False
+        self._streak = self._streak + 1 if aim_ok else 0
+        if aim_ok and self._streak >= self.hold_steps:
+            self.assists += 1
+            return True
+        return False
