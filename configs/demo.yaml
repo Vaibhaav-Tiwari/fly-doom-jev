@@ -117,9 +117,28 @@ motor:
                               # 03:00 featured run) and melee convergence kills; the
                               # fly fights from standoff instead
   attack_threshold: 5.0       # Hz on the attack readout channel
-  attack_aim_gate: 1.0        # aim gate off: sweeps showed gating starves the
-                              # attack channel (atk% 0-17 gated vs 18-36 ungated)
+  attack_aim_cone_deg: 14.0   # WORKING aim gate: attack fires ONLY when an
+  attack_range: 0.45          # enemy is visible, within this cone of screen
+                              # center, and within this normalized range —
+                              # true ViZDoom label geometry (replaces the old
+                              # neural-imbalance gate that starved attack)
+  attack_aim_gate: 1.0        # legacy neural fallback gate (used only when the
+                              # loop passes no geometry; tests)
   threshold: 0.02             # population_bank fallback only
+
+scenario_profiles:            # per-scenario control overrides, deep-merged over
+  fly_arena:                  # the base config for the active scenario; the
+    motor:                    # active profile is noted in /state + recordings
+      forward_min: 0.5        # current tuned values (see above) — unchanged
+  e1m1:
+    motor:
+      forward_min: 0.2        # lower: no constant forward charge into walls
+      attack_range: 0.5
+    unstuck:                  # WALL-STUCK reflex: commanding movement while XY
+      enabled: true           # barely changes for window_s of game time forces
+      window_s: 2.5           # a turn for turn_s (alternating direction).
+      epsilon: 6.0            # Engineering reflex, not biology (map units).
+      turn_s: 1.0
 
 telemetry:
   population_sample: 32       # neurons sampled per population for summaries

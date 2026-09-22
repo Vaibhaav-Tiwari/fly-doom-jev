@@ -160,6 +160,9 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
     seed = int(cfg.get("seed", 42))
 
     env = make_env(cfg)
+    from flydoom.config import apply_scenario_profile
+    scenario = getattr(env, "scenario", None)
+    cfg = apply_scenario_profile(cfg, scenario)  # per-scenario control profile
     connectome, engine = build_neural(cfg)
     from flydoom.neural.tonic import maybe_calibrate_tonic
     tonic_meta = maybe_calibrate_tonic(cfg, connectome, engine)
@@ -193,6 +196,17 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
     neural_cfg = cfg["neural"]
     steps_neural, dt_neural, ms_per_tic = resolve_neural_steps(cfg)
     max_steps = int(cfg["environment"].get("max_controller_steps", 175))
+    motor_cfg = cfg.get("motor", {})
+    aim_cone = float(motor_cfg.get("attack_aim_cone_deg", 14.0))
+    aim_range = float(motor_cfg.get("attack_range", 0.45))
+    unstuck_cfg = cfg.get("unstuck", {})
+    unstuck = None
+    if unstuck_cfg.get("enabled"):
+        from flydoom.motor.reflexes import UnstuckReflex
+        unstuck = UnstuckReflex(
+            window_s=float(unstuck_cfg.get("window_s", 2.5)),
+            epsilon=float(unstuck_cfg.get("epsilon", 6.0)),
+            turn_s=float(unstuck_cfg.get("turn_s", 1.0)))
     pop_sample = int(cfg["telemetry"].get("population_sample", 32))
     top_k = int(cfg["telemetry"].get("top_k", 256))
     motor_idx, motor_ids = _motor_population(connectome)
@@ -218,6 +232,11 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
                             "scenario": getattr(env, "scenario", "fixture"),
                             "skill": getattr(env, "skill", None),
                             "actions": env.available_actions},
+            "scenario_profile": {"scenario": scenario,
+                                 "motor": {"forward_min": motor_cfg.get("forward_min"),
+                                           "attack_aim_cone_deg": aim_cone,
+                                           "attack_range": aim_range},
+                                 "unstuck": unstuck_cfg or None},
             "vision": {"pathway": vision_kind},
             "neural": {"timestep_ms": dt_neural,
                        "steps_per_controller_step": steps_neural,
@@ -292,12 +311,24 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
                 np.fromiter(combined.values(), dtype=np.float32))
 
             engine.step(steps_neural)
-            decoded = decoder.decode(engine.rate)
+            from flydoom.motor.reflexes import aim_in_reticle
+            aim = aim_in_reticle(obs, aim_cone, aim_range)
+            decoded = decoder.decode(engine.rate, aim_ok=aim)
             if weighting:
                 decoded = apply_action_weighting(
                     decoded, jev_action_weights(list(decoded["scores"]), decision,
                                                 intent_biases=intent_biases))
             combo = decoded.get("combo") or [decoded["selected"]]
+            forced = None
+            if unstuck is not None:
+                forced = unstuck.update(
+                    obs.position_x, obs.position_y,
+                    trying_to_move=any(a in ("forward", "backward")
+                                       for a in combo),
+                    t_game_s=obs.episode_tic / 35.0)
+                if forced:
+                    combo = [forced]
+                    decoded["selected"] = forced
             result = env.step(combo)
             obs = result.observation
             total_reward += result.reward
@@ -326,6 +357,8 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
                              "selected": decoded["selected"],
                              "combo": combo,
                              "confidence": round(float(decoded["confidence"]), 4),
+                             "aim_ok": aim,
+                             "unstuck": bool(forced),
                              "neural_scores": decoded.get("neural_scores"),
                              "jev_weights": decoded.get("jev_weights"),
                              "channels": {k: round(v, 4)
@@ -392,6 +425,7 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
             if controller_latencies else {},
             "neural_total_spikes": engine.total_spikes,
             "behavior": _behavior_metrics(beh),
+            "unstuck_triggers": unstuck.triggers if unstuck else 0,
             "learning": ({**plasticity.stats(),
                           "delta_sha256_16": plasticity.delta_sha()}
                          if plasticity else None),

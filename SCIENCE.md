@@ -73,6 +73,14 @@
   (reset on POST /new). This is a **chosen learning rule**, not a validated
   model of mushroom-body plasticity: PAM/PPL1 identities are real MaleCNS
   annotations, but the rule, gains, and taus are engineering picks.
+- **Aim gate (true geometry)**: attack fires only when an enemy is visible,
+  inside a 14° cone of screen center, and within range — computed from
+  ViZDoom's label-derived enemy fields (`motor/reflexes.aim_in_reticle`), not
+  from a neural proxy. The gate only PERMITS attack; the neural attack channel
+  still decides (raw channel rates stay in telemetry).
+- **Unstuck reflex** (E1M1 profile): commanding movement with <6 map units of
+  XY displacement over 2.5 s of game time forces a 1 s turn (alternating
+  direction). Engineering reflex against wall-parking, not biology.
 - **Stale-decision semantics**: Jev runs at ~3 Hz on a background thread; the
   last valid decision stays active until a new one arrives. The game/neural
   loop never blocks on Jev.

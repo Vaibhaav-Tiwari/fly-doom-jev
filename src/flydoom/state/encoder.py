@@ -32,6 +32,8 @@ class EnvironmentState(BaseModel):
     aim_offset_deg: float = 0.0         # enemy_angle in degrees (+ = off-center)
     alive_s: float = 0.0                # episode_tic / 35 (game seconds)
     recent_damage_taken: float = 0.0    # hp lost over the last ~1 s of game time
+    position_x: float = 0.0             # map units (movement/parking evidence)
+    position_y: float = 0.0
 
 
 def compute_threat(obs: Observation) -> float:
@@ -62,4 +64,6 @@ def encode_state(obs: Observation, available_actions: list[str] | None = None,
         aim_offset_deg=round(float(obs.enemy_angle) * 90.0, 1),
         alive_s=round(obs.episode_tic / 35.0, 2),
         recent_damage_taken=round(max(0.0, float(recent_damage)), 1),
+        position_x=round(float(obs.position_x), 1),
+        position_y=round(float(obs.position_y), 1),
     )

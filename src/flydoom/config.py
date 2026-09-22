@@ -43,3 +43,17 @@ def load_config(path: str | Path) -> dict[str, Any]:
         base = load_config(path.parent / raw["extends"])
         raw = _merge(base, raw)
     return _substitute(raw)
+
+
+def apply_scenario_profile(cfg: dict, scenario: str | None) -> dict:
+    """Deep-merge `scenario_profiles.<scenario>` over the base config.
+
+    Per-scenario control settings (aim-gate cone/range, forward_min, unstuck
+    reflex) live in the top-level `scenario_profiles` map; the active profile
+    is noted in /state and recording headers. Unknown scenarios return the
+    base config unchanged.
+    """
+    profile = (cfg.get("scenario_profiles") or {}).get(scenario or "")
+    if not profile:
+        return cfg
+    return _merge(cfg, profile)
