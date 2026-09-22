@@ -19,6 +19,14 @@ SCENARIOS = {
                    "ATTACK"],
                   ["forward", "backward", "turn_left", "turn_right", "attack",
                    "noop"]),
+    # e1m1: FreeDoom phase-1 E1M1 (freedoom1.wad bundled with ViZDoom; BSD-3 —
+    # the FreeDoom replacement for DOOM E1M1; id's doom.wad is proprietary and
+    # NOT shipped). Full movement, honest ammo (pistol, AMMO1, no infinite
+    # ammo), skill from config.
+    "e1m1": (["MOVE_FORWARD", "MOVE_BACKWARD", "TURN_LEFT", "TURN_RIGHT",
+              "ATTACK"],
+             ["forward", "backward", "turn_left", "turn_right", "attack",
+              "noop"]),
     "deadly_corridor": (["MOVE_LEFT", "MOVE_RIGHT", "MOVE_FORWARD",
                          "MOVE_BACKWARD", "TURN_LEFT", "TURN_RIGHT", "ATTACK"],
                         ["left", "right", "forward", "backward",

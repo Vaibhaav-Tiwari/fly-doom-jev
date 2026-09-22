@@ -171,6 +171,9 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
         # decode evoked activity above the calibrated tonic baseline so
         # thresholds keep their meaning (see tonic_meta in the header)
         decoder.set_baseline(engine.rate.copy())
+    from flydoom.integration.weighting import (apply_action_weighting,
+                                               jev_action_weights)
+    weighting = bool(cfg["jev"].get("action_weighting", False))
 
     neural_cfg = cfg["neural"]
     steps_neural, dt_neural, ms_per_tic = resolve_neural_steps(cfg)
@@ -241,10 +244,12 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
             # visual pathway -> sensory drive
             if vision_kind == "photoreceptor":
                 s_idx, s_cur = vision.sample(obs.frame, steps_neural * dt_neural)
+                retina_rec = vision.retina_record(top_k)
             else:
                 s_idx, s_cur = vision.sensory_drive(
                     obs.frame,
                     connectome.population_indices("visual_projection"))
+                retina_rec = None
             # Jev -> bridge modulation (upstream/intermediate populations only)
             b_idx, b_cur = bridge.modulation_currents(decision)
             combined: dict[int, float] = {}
@@ -258,6 +263,9 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
 
             engine.step(steps_neural)
             decoded = decoder.decode(engine.rate)
+            if weighting:
+                decoded = apply_action_weighting(
+                    decoded, jev_action_weights(list(decoded["scores"]), decision))
             combo = decoded.get("combo") or [decoded["selected"]]
             result = env.step(combo)
             obs = result.observation
@@ -281,6 +289,8 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
                              "selected": decoded["selected"],
                              "combo": combo,
                              "confidence": round(float(decoded["confidence"]), 4),
+                             "neural_scores": decoded.get("neural_scores"),
+                             "jev_weights": decoded.get("jev_weights"),
                              "channels": {k: round(v, 4)
                                           for k, v in decoded.get("channels", {}).items()},
                              "imbalances": decoded.get("imbalances"),
@@ -305,6 +315,7 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
                     "neural": {"time_ms": round(engine.time_ms, 2),
                                "steps": steps_neural,
                                "total_spikes": engine.total_spikes},
+                    "retina": retina_rec,
                     "populations": engine.get_population_activity(pop_sample),
                     "activity": _activity_record(engine, motor_idx, top_k),
                     "motor": motor_rec,

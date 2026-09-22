@@ -72,6 +72,7 @@ class LiveLoop(threading.Thread):
         self.episodes = 0
         self.started_at = time.time()
         self._reset_requested = threading.Event()
+        self._pending_scenario: str | None = None
         self._snapshot_json = json.dumps({"status": "starting"})
 
     # ------------------------------------------------------------- snapshot
@@ -119,18 +120,32 @@ class LiveLoop(threading.Thread):
         decoder = make_decoder(connectome, cfg)
         if tonic_meta.get("enabled"):
             decoder.set_baseline(engine.rate.copy())
+        from flydoom.integration.weighting import (apply_action_weighting,
+                                                   jev_action_weights)
+        weighting = bool(cfg["jev"].get("action_weighting", False))
         steps_neural, dt_neural, ms_per_tic = resolve_neural_steps(cfg)
         pop_sample = int(cfg["telemetry"].get("population_sample", 32))
         top_k = int(cfg["telemetry"].get("top_k", 256))
         motor_idx, motor_ids = _motor_population(connectome)
         assets_ref = ensure_connectome_assets(cfg, connectome)
         rec_cfg = cfg.get("recording", {})
+        scenario = cfg["environment"].get("scenario", "fly_arena")
         step_period_s = env.frame_skip / 35.0
         self.status = "degraded_mock_jev" if self.degraded_reason else "running"
         scheduler.start()
         episode_i = 0
         try:
             while True:
+                if (self._pending_scenario is not None
+                        and self._pending_scenario != scenario):
+                    scenario = self._pending_scenario
+                    env.close()
+                    env_cfg = copy.deepcopy(self.cfg)
+                    env_cfg["environment"]["scenario"] = scenario
+                    env = make_env(env_cfg)
+                    step_period_s = env.frame_skip / 35.0
+                    log.info("live scenario switched to %s", scenario)
+                self._pending_scenario = None
                 episode_i += 1
                 seed = self.base_seed + episode_i - 1
                 self._run_episode(
@@ -139,6 +154,8 @@ class LiveLoop(threading.Thread):
                     jev_client=jev_client, bridge=bridge, decoder=decoder,
                     steps_neural=steps_neural, dt_neural=dt_neural,
                     ms_per_tic=ms_per_tic, tonic_meta=tonic_meta,
+                    weighting=weighting, apply_weighting=apply_action_weighting,
+                    weights_of=jev_action_weights, scenario=scenario,
                     pop_sample=pop_sample, top_k=top_k, motor_idx=motor_idx,
                     motor_ids=motor_ids, assets_ref=assets_ref, rec_cfg=rec_cfg,
                     step_period_s=step_period_s, connectome=connectome)
@@ -150,7 +167,8 @@ class LiveLoop(threading.Thread):
     # -------------------------------------------------------------- episode
     def _run_episode(self, episode_i, seed, env, engine, vision_kind, vision,
                      scheduler, jev_client, bridge, decoder, steps_neural,
-                     dt_neural, ms_per_tic, tonic_meta, pop_sample, top_k,
+                     dt_neural, ms_per_tic, tonic_meta, weighting,
+                     apply_weighting, weights_of, scenario, pop_sample, top_k,
                      motor_idx, motor_ids, assets_ref, rec_cfg, step_period_s,
                      connectome) -> None:
         import uuid
@@ -229,9 +247,11 @@ class LiveLoop(threading.Thread):
 
             if vision_kind == "photoreceptor":
                 s_idx, s_cur = vision.sample(obs.frame, steps_neural * dt_neural)
+                retina_rec = vision.retina_record(top_k)
             else:
                 s_idx, s_cur = vision.sensory_drive(
                     obs.frame, connectome.population_indices("visual_projection"))
+                retina_rec = None
             b_idx, b_cur = bridge.modulation_currents(decision)
             combined: dict[int, float] = {}
             for i, c in zip(s_idx, s_cur):
@@ -244,6 +264,9 @@ class LiveLoop(threading.Thread):
 
             engine.step(steps_neural)
             decoded = decoder.decode(engine.rate)
+            if weighting:
+                decoded = apply_weighting(
+                    decoded, weights_of(list(decoded["scores"]), decision))
             combo = decoded.get("combo") or [decoded["selected"]]
             result = env.step(combo)
             obs = result.observation
@@ -267,6 +290,7 @@ class LiveLoop(threading.Thread):
                     for g, v in engine.get_population_activity(None).items()}
             self._publish({
                 "run_id": run_id,
+                "scenario": scenario,
                 "sequence": sequence,
                 "generated_at_ms": round(now * 1000.0, 1),
                 "frame": "data:image/jpeg;base64," + last_frame_b64,
@@ -280,9 +304,14 @@ class LiveLoop(threading.Thread):
                           "combo": combo,
                           "scores": {k: round(float(v), 4)
                                      for k, v in decoded["scores"].items()},
+                          "neural_scores": ({k: round(float(v), 4)
+                                             for k, v in decoded["neural_scores"].items()}
+                                            if decoded.get("neural_scores") else None),
+                          "jev_weights": decoded.get("jev_weights"),
                           "channels": {k: round(float(v), 4)
                                        for k, v in decoded.get("channels", {}).items()},
                           "readout_rates": decoded.get("readout_rates")},
+                "retina": retina_rec,
                 "activity": activity,
                 "populations": pops,
                 "jev": None if decision is None else {
@@ -315,12 +344,15 @@ class LiveLoop(threading.Thread):
                 "neural": {"time_ms": round(engine.time_ms, 2),
                            "steps": steps_neural,
                            "total_spikes": engine.total_spikes},
+                "retina": retina_rec,
                 "populations": engine.get_population_activity(pop_sample),
                 "activity": activity,
                 "motor": {"scores": decoded["scores"],
                           "selected": decoded["selected"],
                           "combo": combo,
                           "confidence": round(float(decoded["confidence"]), 4),
+                          "neural_scores": decoded.get("neural_scores"),
+                          "jev_weights": decoded.get("jev_weights"),
                           "channels": {k: round(v, 4)
                                        for k, v in decoded.get("channels", {}).items()},
                           "imbalances": decoded.get("imbalances"),
@@ -372,8 +404,17 @@ class LiveLoop(threading.Thread):
         return base64.b64encode(buf.getvalue()).decode("ascii")
 
     # ----------------------------------------------------------------- api
-    def request_new_episode(self) -> None:
+    def request_new_episode(self, scenario: str | None = None) -> str | None:
+        """Abort the current episode; optionally switch scenario next episode.
+        Returns an error string for an unknown scenario, else None."""
+        if scenario is not None:
+            from flydoom.doom.base import SCENARIOS
+            if scenario not in SCENARIOS:
+                return (f"unknown scenario {scenario!r}; "
+                        f"supported: {sorted(SCENARIOS)}")
+            self._pending_scenario = scenario
         self._reset_requested.set()
+        return None
 
     def health(self) -> dict:
         jev_ok = self.degraded_reason is None
@@ -395,9 +436,15 @@ def create_app(cfg: dict) -> tuple:
         return Response(content=loop.snapshot(), media_type="application/json")
 
     @app.post("/new")
-    def new() -> dict:
-        loop.request_new_episode()
-        return {"status": "reset_requested"}
+    def new(body: dict | None = None) -> dict:
+        """Start a fresh episode (new seed). Optional body {"scenario": name}
+        switches the environment for the next episode."""
+        scenario = (body or {}).get("scenario")
+        err = loop.request_new_episode(scenario=scenario)
+        if err:
+            return {"status": "error", "error": err}
+        return {"status": "reset_requested",
+                "scenario": scenario or "unchanged"}
 
     @app.get("/health")
     def health() -> dict:

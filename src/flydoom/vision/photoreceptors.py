@@ -83,12 +83,29 @@ class PhotoreceptorPathway:
             self.adaptation += alpha_a * (float(signal.mean()) - self.adaptation)
             signal = signal / (self.adaptation + 1e-3)
         drive = self.gain * signal / (self.c + signal)
+        self.last_drive = drive.astype(np.float32)  # exposed for /state + recordings
 
         indices = np.concatenate([self.conn.retina, self.conn.lamina])
         currents = np.concatenate(
             [drive.astype(np.float32),
              np.full(len(self.conn.lamina), self.lamina_bias, dtype=np.float32)])
         return indices.astype(np.int64), currents
+
+    def retina_record(self, top_k: int = 256) -> dict:
+        """Top-K photoreceptor INPUT DRIVE (mV, Naka-Rushton compressed
+        luminance), aligned to graph neuron indices. This is retinal input,
+        not spikes — photoreceptors are graded-potential cells in reality and
+        our spiking proxy fires rarely by design (SCIENCE.md)."""
+        d = getattr(self, "last_drive", None)
+        if d is None or len(d) == 0:
+            return {"indices": [], "drive": [],
+                    "note": "photoreceptor input drive (mV), not spikes"}
+        k = int(min(top_k, len(d)))
+        sel = np.argpartition(-d, k - 1)[:k]
+        sel = sel[np.argsort(-d[sel])]
+        return {"indices": [int(self.conn.retina[i]) for i in sel if d[i] > 0.0],
+                "drive": [round(float(d[i]), 2) for i in sel if d[i] > 0.0],
+                "note": "photoreceptor input drive (mV), not spikes"}
 
     def reset(self) -> None:
         self.luminance.fill(0.0)

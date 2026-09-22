@@ -25,7 +25,7 @@ class VizDoomEnv:
         self._label_pos: dict[int, tuple] = {}   # object_id -> last position
         self._label_still: dict[int, int] = {}   # object_id -> stationary steps
         self._visible_ids: set[int] = set()      # ids in the latest observation
-        self.corpse_steps = int(env_cfg.get("corpse_steps", 8))
+        self.corpse_steps = int(env_cfg.get("corpse_steps", 40))
         self.scenario = env_cfg.get("scenario", "defend_the_center")
         if self.scenario not in SCENARIOS:
             raise ValueError(f"unknown scenario {self.scenario!r}; "
@@ -39,18 +39,32 @@ class VizDoomEnv:
             if not os.path.exists(wad_path):
                 raise RuntimeError("fly_arena.wad missing; run "
                                    "`python -m flydoom.scenarios.make_fly_arena`")
+            g.set_doom_map("MAP01")
+        elif self.scenario == "e1m1":
+            # FreeDoom phase 1 (bundled with ViZDoom as the default game WAD
+            # base; BSD-3 license) — E1M1 map, the FreeDoom DOOM E1M1
+            wad_path = os.path.join(os.path.dirname(vzd.__file__), "freedoom1.wad")
+            if not os.path.exists(wad_path):
+                raise RuntimeError("freedoom1.wad not found in the vizdoom "
+                                   "package; e1m1 scenario unavailable")
+            g.set_doom_game_path(wad_path)  # IWAD, not a -file scenario
+            g.set_doom_map("E1M1")
         else:
             scen_dir = os.path.join(os.path.dirname(vzd.__file__), "scenarios")
             wad_path = os.path.join(scen_dir, self.scenario + ".wad")
-        g.set_doom_scenario_path(wad_path)
-        g.set_doom_map("MAP01")
+            g.set_doom_map("MAP01")
+        if self.scenario != "e1m1":
+            g.set_doom_scenario_path(wad_path)
+        # SELECTED_WEAPON_AMMO tracks the held weapon's pool in every scenario
+        # (empirical: ViZDoom's AMMO2 read follows Clip, not shells)
+        self._ammo_var = "SELECTED_WEAPON_AMMO"
         g.set_screen_resolution(getattr(
             vzd.ScreenResolution, env_cfg.get("screen_resolution", "RES_320X240")))
         g.set_screen_format(getattr(vzd.ScreenFormat,
                                     env_cfg.get("screen_format", "RGB24")))
         g.set_window_visible(False)
         g.set_labels_buffer_enabled(True)
-        self._var_names = ["HEALTH", "AMMO2", "POSITION_X", "POSITION_Y",
+        self._var_names = ["HEALTH", self._ammo_var, "POSITION_X", "POSITION_Y",
                            "ANGLE", "KILLCOUNT"]
         for name in self._var_names:
             g.add_available_game_variable(getattr(vzd.GameVariable, name))
@@ -125,7 +139,10 @@ class VizDoomEnv:
             self._visible_ids.add(l.object_id)
             # corpses stay in the labels buffer with their living name; an
             # object that has not moved for `corpse_steps` observations is
-            # treated as dead and dropped from enemy tracking
+            # treated as dead and dropped from enemy tracking. 40 steps
+            # (~4.6s game time): shooting imps legitimately stand still for
+            # seconds, and filtering them as corpses made Jev/blind to live
+            # enemies dead-center on screen (measured bug 2026-09-22)
             pos = (round(l.object_position_x, 1), round(l.object_position_y, 1))
             if self._label_pos.get(l.object_id) == pos:
                 self._label_still[l.object_id] = self._label_still.get(l.object_id, 0) + 1
@@ -145,7 +162,7 @@ class VizDoomEnv:
             enemy_visible = True
             dist = float(min(1.0, d / 1500.0))
             rel_ang = float(max(-1.0, min(1.0, rel / 90.0)))
-        obs = Observation(frame=frame, health=vals["HEALTH"], ammo=vals["AMMO2"],
+        obs = Observation(frame=frame, health=vals["HEALTH"], ammo=vals[self._ammo_var],
                           kills=int(vals["KILLCOUNT"]), position_x=px,
                           position_y=py, angle_deg=ang,
                           enemy_visible=enemy_visible, enemy_distance=dist,

@@ -43,11 +43,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--max-steps", type=int, default=None)
     p.add_argument("--seeds", type=int, nargs="*", default=None,
                    help="explicit seeds; overrides --repeat")
+    p.add_argument("--live", action="store_true",
+                   help="keep jev.mode from config instead of forcing mock "
+                        "(A/B comparisons; needs JEV_API_KEY sourced)")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.WARNING)
 
     base = load_config(args.config)
-    base["jev"]["mode"] = "mock"
+    if not args.live:
+        base["jev"]["mode"] = "mock"
     base["environment"]["realtime"] = False
     if args.max_steps:
         base["environment"]["max_controller_steps"] = args.max_steps
