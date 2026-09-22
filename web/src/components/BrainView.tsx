@@ -11,6 +11,7 @@ const palette: Record<string, string> = {
   vnc_sensory: '#2f82bd', vnc_intrinsic: '#2f82bd', vnc_motor: '#2f82bd',
   other: '#2f82bd', recorded: '#2f82bd',
 };
+const denseOpticGroups = new Set(['ol_sensory', 'visual_projection', 'visual_centrifugal', 'ol_intrinsic']);
 const getId = (n: NeuronSample, i = 0) => String(n.body_id ?? n.neuron ?? i);
 const getPos = (n: NeuronSample): [number, number, number] | null =>
   n.position ?? (n.x != null ? [n.x, n.y ?? 0, n.z ?? 0] : null);
@@ -116,9 +117,9 @@ export default function BrainView({recording, step}: {recording: Recording; step
     controls.minDistance = 3;
     controls.maxDistance = 22;
 
-    const geometry = new THREE.OctahedronGeometry(bundle?.count ? .012 : .07, 0);
+    const geometry = new THREE.OctahedronGeometry(bundle?.count ? .009 : .06, 0);
     const material = new THREE.MeshBasicMaterial({
-      color: 0xffffff, vertexColors: false, transparent: true, opacity: .94,
+      color: 0xffffff, vertexColors: false, transparent: true, opacity: .68,
       blending: THREE.NormalBlending, depthWrite: true, toneMapped: false, fog: false,
     });
     const cloud = new THREE.InstancedMesh(geometry, material, neurons.length);
@@ -165,6 +166,9 @@ export default function BrainView({recording, step}: {recording: Recording; step
       positions[j + 2] = (n.position[2] - center.z) * scale;
       maxRadiusSq = Math.max(maxRadiusSq, positions[j] ** 2 + positions[j + 1] ** 2 + positions[j + 2] ** 2);
       dummy.position.set(positions[j], positions[j + 1], positions[j + 2]);
+      // The optic lobes contain most positioned neurons. Thin only their
+      // resting layer so the complete, unsampled activity overlay stays clear.
+      dummy.scale.setScalar(!bundle || !denseOpticGroups.has(n.group) || n.index % 5 === 0 ? 1 : 0);
       dummy.updateMatrix();
       cloud.setMatrixAt(i, dummy.matrix);
       if (n.index < map.length) map[n.index] = i;
@@ -199,7 +203,12 @@ export default function BrainView({recording, step}: {recording: Recording; step
     const coreMaterial = new THREE.PointsMaterial({color: 0xffe09a, map: glowMap, size: .2, vertexColors: true, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
     firingHalo.current = haloMaterial;
     firingCore.current = coreMaterial;
-    scene.add(new THREE.Points(activeGeometry, haloMaterial), new THREE.Points(activeGeometry, coreMaterial));
+    const firingHaloPoints = new THREE.Points(activeGeometry, haloMaterial);
+    const firingCorePoints = new THREE.Points(activeGeometry, coreMaterial);
+    firingHaloPoints.renderOrder = 20;
+    firingCorePoints.renderOrder = 21;
+    firingHaloPoints.frustumCulled = firingCorePoints.frustumCulled = false;
+    scene.add(firingHaloPoints, firingCorePoints);
 
     const actionSets = recording.header.motor?.contributing as Record<string, {indices?: number[]}> | undefined;
     const actionCapacity = Math.max(64, ...Object.values(actionSets ?? {}).map(entry => entry.indices?.length ?? 0));
@@ -208,7 +217,10 @@ export default function BrainView({recording, step}: {recording: Recording; step
     actionGeom.setDrawRange(0, 0);
     actionGeometry.current = actionGeom;
     const actionMaterial = new THREE.PointsMaterial({color: 0xff3150, map: glowMap, size: .95, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
-    scene.add(new THREE.Points(actionGeom, actionMaterial));
+    const actionPoints = new THREE.Points(actionGeom, actionMaterial);
+    actionPoints.renderOrder = 22;
+    actionPoints.frustumCulled = false;
+    scene.add(actionPoints);
 
     const visualPositions: number[] = [];
     neurons.forEach((n, i) => {
@@ -321,7 +333,8 @@ export default function BrainView({recording, step}: {recording: Recording; step
       t[instance] = Math.max(t[instance], displayedRate);
       const src = instance * 3, dst = activeCount * 3;
       activePositions.setXYZ(activeCount, positions[src], positions[src + 1], positions[src + 2]);
-      activeColors.setXYZ(activeCount, displayedRate, displayedRate, displayedRate);
+      const visibleIntensity = .55 + displayedRate * .45;
+      activeColors.setXYZ(activeCount, visibleIntensity, visibleIntensity, visibleIntensity);
       activeCount++;
     });
     activePositions.needsUpdate = true;
@@ -353,7 +366,7 @@ export default function BrainView({recording, step}: {recording: Recording; step
 
   return <div className="brain-stage">
     <div ref={host} className="brain-canvas"/>
-    <div className="brain-title"><span><Sparkles/> MALECNS // LIVE FIRING</span><strong>{(bundle?.count ?? drawCount).toLocaleString()}</strong><small>{bundle ? `${drawCount.toLocaleString()} positioned neurons · activity synced to frame` : `${drawCount} sampled neurons · activity synced to frame`}</small></div>
+    <div className="brain-title"><span><Sparkles/> MALECNS // LIVE FIRING</span><strong>{(bundle?.count ?? drawCount).toLocaleString()}</strong><small>{bundle ? `${drawCount.toLocaleString()} positioned · optic rest thinned · all firing shown` : `${drawCount} sampled neurons · activity synced to frame`}</small></div>
     <div className="activity-meter" role="status" aria-label={`${activity.count} firing neurons, ${activity.peak.toFixed(1)} hertz peak`}><b>{activity.count.toLocaleString()}</b> FIRING <span>{activity.peak.toFixed(1)} Hz PEAK</span></div>
     <div className="reset-view" title="Drag to rotate · scroll to zoom"><MousePointer2/> DRAG TO ORBIT <Maximize2/></div>
     <div className="activity-legend"><span><i/> FIRING</span><span><i/> DECODER INPUT</span><span><i/> RESTING</span></div>
