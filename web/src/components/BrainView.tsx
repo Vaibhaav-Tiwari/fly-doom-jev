@@ -218,8 +218,8 @@ export default function BrainView({recording, step}: {recording: Recording; step
     glowContext.fillStyle = glowGradient;
     glowContext.fillRect(0, 0, 64, 64);
     const glowMap = new THREE.CanvasTexture(glowCanvas);
-    const haloMaterial = new THREE.PointsMaterial({color: 0xff8218, map: glowMap, size: .82, vertexColors: true, transparent: true, opacity: .95, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
-    const coreMaterial = new THREE.PointsMaterial({color: 0xffe09a, map: glowMap, size: .2, vertexColors: true, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
+    const haloMaterial = new THREE.PointsMaterial({color: 0xd98220, map: glowMap, size: .34, vertexColors: true, transparent: true, opacity: .22, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
+    const coreMaterial = new THREE.PointsMaterial({color: 0xe8b45f, map: glowMap, size: .12, vertexColors: true, transparent: true, opacity: .72, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
     firingHalo.current = haloMaterial;
     firingCore.current = coreMaterial;
     const firingHaloPoints = new THREE.Points(activeGeometry, haloMaterial);
@@ -235,7 +235,7 @@ export default function BrainView({recording, step}: {recording: Recording; step
     actionGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(actionCapacity * 3), 3));
     actionGeom.setDrawRange(0, 0);
     actionGeometry.current = actionGeom;
-    const actionMaterial = new THREE.PointsMaterial({color: 0xff3150, map: glowMap, size: .95, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
+    const actionMaterial = new THREE.PointsMaterial({color: 0xe45768, map: glowMap, size: .34, transparent: true, opacity: .6, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
     const actionPoints = new THREE.Points(actionGeom, actionMaterial);
     actionPoints.renderOrder = 22;
     actionPoints.frustumCulled = false;
@@ -249,7 +249,7 @@ export default function BrainView({recording, step}: {recording: Recording; step
     retinaGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(retinaCapacity * 3), 3));
     retinaGeom.setDrawRange(0, 0);
     retinaGeometry.current = retinaGeom;
-    const retinaMat = new THREE.PointsMaterial({color: 0xffd778, map: glowMap, size: .52, vertexColors: true, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
+    const retinaMat = new THREE.PointsMaterial({color: 0xd9a94f, map: glowMap, size: .24, vertexColors: true, transparent: true, opacity: .42, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
     const retinaPoints = new THREE.Points(retinaGeom, retinaMat);
     retinaPoints.renderOrder = 18;
     retinaPoints.frustumCulled = false;
@@ -303,9 +303,9 @@ export default function BrainView({recording, step}: {recording: Recording; step
         }
         cloud.instanceColor!.needsUpdate = true;
       }
-      haloMaterial.size = .68 + .26 * (.5 + .5 * Math.sin(now * .012));
-      coreMaterial.size = .17 + .07 * (.5 + .5 * Math.sin(now * .015));
-      retinaMat.size = .46 + .16 * (.5 + .5 * Math.sin(now * .012));
+      haloMaterial.size = .28 + .08 * (.5 + .5 * Math.sin(now * .012));
+      coreMaterial.size = .1 + .035 * (.5 + .5 * Math.sin(now * .015));
+      retinaMat.size = .2 + .06 * (.5 + .5 * Math.sin(now * .012));
       controls.update(); renderer.render(scene, camera);
     };
     frame = requestAnimationFrame(tick);
@@ -322,7 +322,9 @@ export default function BrainView({recording, step}: {recording: Recording; step
     const activeGeom = firingGeometry.current, actionGeom = actionGeometry.current, retinaGeom = retinaGeometry.current;
     if (!t || !flags || !map || !positions || !activeGeom || !actionGeom || !retinaGeom) return;
     t.fill(0); flags.fill(0);
-    const top = step?.activity?.top ?? [];
+    // v2.1 recordings currently carry top-256; newer live/recorded payloads
+    // carry top-1000. Render up to 1000 without assuming either payload size.
+    const top = (step?.activity?.top ?? []).slice(0, 1000);
     const motorIndices = recording.header.motor_population?.indices ?? [];
     const motorRates = step?.activity?.motor_rates ?? [];
     const peak = Math.max(0, ...top.map(x => x[1]), ...motorRates);
