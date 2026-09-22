@@ -32,6 +32,7 @@ import os
 import sys
 import threading
 import time
+from pathlib import Path
 
 import numpy as np
 from fastapi import FastAPI
@@ -163,7 +164,6 @@ class LiveLoop(threading.Thread):
         self._cfg_sha = None
         self._last_checkpoint_t = time.time()
         if plasticity:
-            from pathlib import Path
             self._cfg_sha = plasticity_config_sha(cfg)
             self._checkpoint_path = Path(cfg.get("plasticity", {}).get(
                 "checkpoint", "outputs/learning/checkpoint.npz"))
