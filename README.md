@@ -31,6 +31,10 @@ make replay         # replay dashboard + API at http://127.0.0.1:8420
 make live           # live mode: continuous ViZDoom+MaleCNS+Jev loop, HTTP polling API
 make test           # unit + integration tests
 make benchmark      # measured performance numbers -> outputs/metrics/
+make batch ARGS="--seeds 42 43 --scenarios fly_arena e1m1 --controllers jev brain"
+                    # batch experiments -> outputs/batch/<ts>/ (episodes.jsonl +
+                    # summary.csv/json; Jev API calls only in 'jev' arms;
+                    # --learn enables plasticity per arm)
 ```
 
 `configs/demo.yaml` uses `jev.mode: live` — the real TypeSafe System One API
@@ -66,7 +70,13 @@ credits). Simple HTTP polling, no websockets:
 - `GET /state` — latest snapshot: status, run_id, sequence, data-url JPEG frame
   (640×480, ~6 fps cap), game stats, motor scores/channels/readouts, top-256 +
   motor neuron activity, population mean rates, Jev probabilities/choices/usage
-- `POST /new` — abort the current episode, start a fresh one with a new seed
+- `POST /new` — abort the current episode, start a fresh one with a new seed.
+  Optional body: `{"scenario": "fly_arena"|"e1m1"}`, `{"controller":
+  "jev"|"brain"}` (brain = MaleCNS alone, zero Jev calls),
+  `{"reset_learning": true}` (restart the fly's learned weights fresh — by
+  default they carry over across plays and server restarts via the provenance-
+  checked checkpoint `outputs/learning/checkpoint.npz`: one continuously-
+  learning fly)
 - `GET /health` — status, uptime, episode count, Jev reachability
 
 Every episode is recorded in the standard format under

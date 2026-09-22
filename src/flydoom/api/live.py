@@ -73,6 +73,7 @@ class LiveLoop(threading.Thread):
         self.started_at = time.time()
         self.controller = cfg.get("controller", "jev")  # 'jev' | 'brain'
         self._reset_requested = threading.Event()
+        self._reset_learning = False  # POST /new {reset_learning:true}
         self._pending_scenario: str | None = None
         self._pending_controller: str | None = None
         self._snapshot_json = json.dumps({"status": "starting"})
@@ -139,8 +140,20 @@ class LiveLoop(threading.Thread):
             return jev_action_weights(scores, decision,
                                       intent_biases=intent_biases)
         from flydoom.neural.plasticity import (maybe_make_plasticity,
+                                               plasticity_config_sha,
                                                shaped_reward)
         plasticity = maybe_make_plasticity(cfg, connectome, engine)
+        self._checkpoint_path = None
+        self._cfg_sha = None
+        self._last_checkpoint_t = time.time()
+        if plasticity:
+            from pathlib import Path
+            self._cfg_sha = plasticity_config_sha(cfg)
+            self._checkpoint_path = Path(cfg.get("plasticity", {}).get(
+                "checkpoint", "outputs/learning/checkpoint.npz"))
+            # one continuously-learning fly: reload learned weights across
+            # server restarts when provenance (graph + config hash) matches
+            plasticity.load_checkpoint(self._checkpoint_path, self._cfg_sha)
         steps_neural, dt_neural, ms_per_tic = resolve_neural_steps(cfg)
         pop_sample = int(cfg["telemetry"].get("population_sample", 32))
         top_k = int(cfg["telemetry"].get("top_k", 256))
@@ -194,10 +207,15 @@ class LiveLoop(threading.Thread):
                     step_period_s=step_period_s, connectome=connectome,
                     plasticity=plasticity, shaped_reward=shaped_reward,
                     controller=self.controller, scen_cfg=scen_cfg)
-                # learned weights persist across natural episode ends (that is
-                # the point); a manual reset (POST /new) starts the fly fresh
-                if plasticity and reason == "manual_reset":
+                # learned weights persist across natural episode ends AND
+                # manual resets (one continuously-learning fly); only an
+                # explicit POST /new {reset_learning:true} starts the fly fresh
+                if plasticity and reason == "manual_reset" \
+                        and self._reset_learning:
                     plasticity.reset()
+                    if self._checkpoint_path and self._checkpoint_path.exists():
+                        self._checkpoint_path.unlink()  # lineage restarts
+                self._reset_learning = False
                 self._reset_requested.clear()
         finally:
             scheduler.stop()
@@ -260,8 +278,10 @@ class LiveLoop(threading.Thread):
                     "cadence_hz": float(self.cfg["jev"].get("cadence_hz", 3.0))},
             "bridge": bridge.describe(),
             "motor": decoder.describe(),
-            "plasticity": (plasticity.describe() if plasticity
-                           else {"enabled": False}),
+            "plasticity": (({**plasticity.describe(),
+                             "checkpoint_id": plasticity.checkpoint_id,
+                             "checkpoint": str(self._checkpoint_path)})
+                           if plasticity else {"enabled": False}),
             "motor_population": {"indices": [int(i) for i in motor_idx],
                                  "body_ids": motor_ids},
             "connectome_assets": assets_ref,
@@ -301,6 +321,7 @@ class LiveLoop(threading.Thread):
         last_frame_b64: str | None = None
         last_frame_t = 0.0
         total_reward = 0.0
+        reward_terms: dict[str, int] = {}
         latencies: list[float] = []
         beh: dict[str, list] = {"turn_imb": [], "selected": [], "visible": [],
                                 "dist": [], "angle": [], "attack_ch": []}
@@ -365,9 +386,20 @@ class LiveLoop(threading.Thread):
             total_reward += result.reward
             health_hist.append(float(obs.health))
             if plasticity:
+                ctx = {"attack": "attack" in combo, "aim_ok": aim,
+                       "stuck": bool(unstuck and unstuck.stuck_now),
+                       "escaped": bool(unstuck and unstuck.pop_escape())}
                 plasticity.note_reward(shaped_reward(self.cfg, prev_obs, obs,
-                                                     result.done))
+                                                     result.done, ctx=ctx,
+                                                     terms=reward_terms))
                 plasticity.update(engine.rate, step_period_s)
+                if self._checkpoint_path \
+                        and time.time() - self._last_checkpoint_t >= float(
+                            self.cfg.get("plasticity", {}).get(
+                                "checkpoint_interval_s", 60.0)):
+                    plasticity.save_checkpoint(self._checkpoint_path,
+                                               self._cfg_sha)
+                    self._last_checkpoint_t = time.time()
             prev_obs = obs
             latencies.append((time.perf_counter() - t_step) * 1000.0)
             beh["turn_imb"].append(float(decoded.get("imbalances", {}).get("turn", 0.0)))
@@ -417,7 +449,9 @@ class LiveLoop(threading.Thread):
                 "retina": retina_rec,
                 "activity": activity,
                 "populations": pops,
-                "learning": plasticity.stats() if plasticity else None,
+                "learning": ({**plasticity.stats(),
+                              "checkpoint_id": plasticity.checkpoint_id}
+                             if plasticity else None),
                 "jev": None if decision is None else {
                     "model": decision.model, "is_mock": decision.is_mock,
                     "probabilities": decision.probabilities,
@@ -496,12 +530,18 @@ class LiveLoop(threading.Thread):
             "neural_total_spikes": engine.total_spikes,
             "behavior": _behavior_metrics(beh),
             "unstuck_triggers": unstuck.triggers if unstuck else 0,
+            "unstuck_escapes": unstuck.escapes if unstuck else 0,
             "learning": ({**plasticity.stats(),
-                          "delta_sha256_16": plasticity.delta_sha()}
+                          "delta_sha256_16": plasticity.delta_sha(),
+                          "checkpoint_id": plasticity.checkpoint_id,
+                          "reward_terms": reward_terms}
                          if plasticity else None),
         }
         writer.write_episode_end({"episode": episode})
         writer.close()
+        if plasticity and self._checkpoint_path:
+            plasticity.save_checkpoint(self._checkpoint_path, self._cfg_sha)
+            self._last_checkpoint_t = time.time()
         cause = ("died (health 0)" if float(obs.health) <= 0
                  else reset_reason.replace("_", " "))
         scheduler.note_episode_outcome(
@@ -523,9 +563,12 @@ class LiveLoop(threading.Thread):
 
     # ----------------------------------------------------------------- api
     def request_new_episode(self, scenario: str | None = None,
-                            controller: str | None = None) -> str | None:
+                            controller: str | None = None,
+                            reset_learning: bool = False) -> str | None:
         """Abort the current episode; optionally switch scenario/controller for
-        the next one. Returns an error string for invalid input, else None."""
+        the next one. Learned weights carry over by default (one continuously-
+        learning fly); reset_learning=true restarts the fly fresh.
+        Returns an error string for invalid input, else None."""
         if scenario is not None:
             from flydoom.doom.base import SCENARIOS
             if scenario not in SCENARIOS:
@@ -537,6 +580,7 @@ class LiveLoop(threading.Thread):
                 return (f"unknown controller {controller!r}; "
                         "supported: ['brain', 'jev']")
             self._pending_controller = controller
+        self._reset_learning = bool(reset_learning)
         self._reset_requested.set()
         return None
 
@@ -565,14 +609,19 @@ def create_app(cfg: dict) -> tuple:
         """Start a fresh episode (new seed). Optional body:
         {"scenario": name} switches the environment, {"controller":
         "jev"|"brain"} switches the controller (brain = MaleCNS alone,
-        Jev bypassed, zero API calls) for the next episode."""
-        err = loop.request_new_episode(scenario=(body or {}).get("scenario"),
-                                       controller=(body or {}).get("controller"))
+        Jev bypassed, zero API calls) for the next episode.
+        {"reset_learning": true} restarts the fly's learned weights fresh
+        (default: they carry over — one continuously-learning fly)."""
+        err = loop.request_new_episode(
+            scenario=(body or {}).get("scenario"),
+            controller=(body or {}).get("controller"),
+            reset_learning=bool((body or {}).get("reset_learning", False)))
         if err:
             return {"status": "error", "error": err}
         return {"status": "reset_requested",
                 "scenario": (body or {}).get("scenario") or "unchanged",
-                "controller": (body or {}).get("controller") or "unchanged"}
+                "controller": (body or {}).get("controller") or "unchanged",
+                "reset_learning": bool((body or {}).get("reset_learning", False))}
 
     @app.get("/health")
     def health() -> dict:

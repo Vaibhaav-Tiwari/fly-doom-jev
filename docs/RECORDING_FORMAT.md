@@ -215,7 +215,16 @@ Notes for consumers:
   the action (scenario_profiles unstuck; E1M1 default on).
 - `header.scenario_profile` (2.2+): the active per-scenario control profile —
   `{"scenario", "motor": {forward_min, attack_aim_cone_deg, attack_range},
-  "unstuck": {...} | null}`. Episode metrics include `unstuck_triggers`.
+  "unstuck": {...} | null}`. Episode metrics include `unstuck_triggers` and
+  `unstuck_escapes` (trigger confirmed by actual movement).
+- `learning.reward_terms` + `learning.checkpoint_id` (episode-end metrics,
+  2.2+): per-term event counts of the behavior shaping (`reward_attack_aimed`,
+  `penalty_attack_blind`, `penalty_stuck`, `reward_escape` — chosen shaping,
+  see SCIENCE.md) and the lineage id of the loaded/saved weight checkpoint
+  (`null` when the fly started fresh). `header.plasticity.checkpoint_id` /
+  `.checkpoint` record the same lineage; the live server persists weights to
+  `outputs/learning/checkpoint.npz` (provenance-checked on load) so the fly
+  keeps learning across POST /new and server restarts.
 - `jev` is `null` only before the first decision; afterwards the last valid
   decision is repeated (stale-decision semantics) — check `request_id` changes
   to detect new decisions. `probabilities` covers the full 11-question bank

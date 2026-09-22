@@ -260,6 +260,7 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
 
     scheduler.start()
     total_reward = 0.0
+    reward_terms: dict[str, int] = {}
     action_counts: dict[str, int] = {}
     controller_latencies: list[float] = []
     beh: dict[str, list] = {"turn_imb": [], "selected": [], "visible": [],
@@ -334,8 +335,12 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
             total_reward += result.reward
             health_hist.append(float(obs.health))
             if plasticity:
+                ctx = {"attack": "attack" in combo, "aim_ok": aim,
+                       "stuck": bool(unstuck and unstuck.stuck_now),
+                       "escaped": bool(unstuck and unstuck.pop_escape())}
                 plasticity.note_reward(shaped_reward(cfg, prev_obs, obs,
-                                                     result.done))
+                                                     result.done, ctx=ctx,
+                                                     terms=reward_terms))
                 plasticity.update(engine.rate, step_period_s)
             prev_obs = obs
             action_counts[decoded["selected"]] = action_counts.get(decoded["selected"], 0) + 1
@@ -426,8 +431,11 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
             "neural_total_spikes": engine.total_spikes,
             "behavior": _behavior_metrics(beh),
             "unstuck_triggers": unstuck.triggers if unstuck else 0,
+            "unstuck_escapes": unstuck.escapes if unstuck else 0,
             "learning": ({**plasticity.stats(),
-                          "delta_sha256_16": plasticity.delta_sha()}
+                          "delta_sha256_16": plasticity.delta_sha(),
+                          "checkpoint_id": plasticity.checkpoint_id,
+                          "reward_terms": reward_terms}
                          if plasticity else None),
         }
         if writer:
