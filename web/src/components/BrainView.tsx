@@ -69,6 +69,7 @@ export default function BrainView({recording, step}: {recording: Recording; step
   const actionGeometry = useRef<THREE.BufferGeometry | null>(null);
   const firingHalo = useRef<THREE.PointsMaterial | null>(null);
   const firingCore = useRef<THREE.PointsMaterial | null>(null);
+  const activityDensity = useRef(1);
   const retinaGeometry = useRef<THREE.BufferGeometry | null>(null);
   const populationHistory = useRef<RecentRates>(new Map());
   const neuronPeakHistory = useRef<RecentRates>(new Map());
@@ -201,7 +202,9 @@ export default function BrainView({recording, step}: {recording: Recording; step
     controls.maxDistance = Math.max(22, orbitSphere.radius * 6);
 
     // A separate billboard layer makes the sparse, real firing set legible over 141k resting instances.
-    const activeCapacity = Math.max(4096, (recording.header.motor_population?.indices?.length ?? 0) + 512);
+    // Reserve room for the backend's top-10k activity plus any motor neurons
+    // that are not already present in that set.
+    const activeCapacity = Math.max(10_240, 10_000 + (recording.header.motor_population?.indices?.length ?? 0));
     const activeGeometry = new THREE.BufferGeometry();
     activeGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(activeCapacity * 3), 3));
     activeGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(activeCapacity * 3), 3));
@@ -303,8 +306,16 @@ export default function BrainView({recording, step}: {recording: Recording; step
         }
         cloud.instanceColor!.needsUpdate = true;
       }
-      haloMaterial.size = .45 + .13 * (.5 + .5 * Math.sin(now * .012));
-      coreMaterial.size = .16 + .06 * (.5 + .5 * Math.sin(now * .015));
+      // Preserve the current look for <=1k points, then reduce each point's
+      // footprint/opacity as denser top-10k payloads arrive. This keeps the
+      // aggregate activity readable without washing out the resting blue.
+      const density = activityDensity.current;
+      const haloScale = .65 + .35 * density;
+      const coreScale = .75 + .25 * density;
+      haloMaterial.size = (.45 + .13 * (.5 + .5 * Math.sin(now * .012))) * haloScale;
+      haloMaterial.opacity = .5 * (.35 + .65 * density);
+      coreMaterial.size = (.16 + .06 * (.5 + .5 * Math.sin(now * .015))) * coreScale;
+      coreMaterial.opacity = .9 * (.65 + .35 * density);
       retinaMat.size = .34 + .11 * (.5 + .5 * Math.sin(now * .012));
       controls.update(); renderer.render(scene, camera);
     };
@@ -322,9 +333,9 @@ export default function BrainView({recording, step}: {recording: Recording; step
     const activeGeom = firingGeometry.current, actionGeom = actionGeometry.current, retinaGeom = retinaGeometry.current;
     if (!t || !flags || !map || !positions || !activeGeom || !actionGeom || !retinaGeom) return;
     t.fill(0); flags.fill(0);
-    // v2.1 recordings currently carry top-256; newer live/recorded payloads
-    // carry top-1000. Render up to 1000 without assuming either payload size.
-    const top = (step?.activity?.top ?? []).slice(0, 1000);
+    // Older recordings carry top-256/top-1000; current live and recorded
+    // payloads can carry top-10k. Render whatever exists, capped defensively.
+    const top = (step?.activity?.top ?? []).slice(0, 10_000);
     const motorIndices = recording.header.motor_population?.indices ?? [];
     const motorRates = step?.activity?.motor_rates ?? [];
     const peak = Math.max(0, ...top.map(x => x[1]), ...motorRates);
@@ -343,6 +354,7 @@ export default function BrainView({recording, step}: {recording: Recording; step
     const activeRates = new Map<number, number>();
     top.forEach(([idx, rate]) => activeRates.set(idx, Math.max(activeRates.get(idx) ?? 0, rate)));
     motorIndices.forEach((idx, i) => {const rate = motorRates[i] ?? 0; if (rate > 0) activeRates.set(idx, Math.max(activeRates.get(idx) ?? 0, rate));});
+    activityDensity.current = Math.max(.4, Math.sqrt(1000 / Math.max(1000, activeRates.size)));
     const currentGroupPeaks = new Map<string, number>();
     activeRates.forEach((rate, idx) => {
       const instance = idx < map.length ? map[idx] : -1;
