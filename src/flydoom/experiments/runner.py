@@ -320,7 +320,8 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
             engine.step(steps_neural)
             from flydoom.motor.reflexes import aim_in_reticle
             aim = aim_in_reticle(obs, aim_cone, aim_range)
-            decoded = decoder.decode(engine.rate, aim_ok=aim)
+            decoded = decoder.decode(engine.rate, aim_ok=aim,
+                                     spikes=getattr(engine, "counts", None))
             if weighting:
                 decoded = apply_action_weighting(
                     decoded, jev_action_weights(list(decoded["scores"]), decision,
@@ -370,6 +371,7 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
                              "combo": combo,
                              "confidence": round(float(decoded["confidence"]), 4),
                              "aim_ok": aim,
+                             "attack_spiked": bool(decoded.get("attack_spiked", False)),
                              "unstuck": bool(forced),
                              "neural_scores": decoded.get("neural_scores"),
                              "jev_weights": decoded.get("jev_weights"),

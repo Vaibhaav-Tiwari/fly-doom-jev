@@ -83,3 +83,28 @@ def test_reflex_attack_intent_still_modulates():
     assert jev_action_weights(ACTIONS, d, aim_ok=True)["attack"] == 1.8
     d.meta["choices"] = {"INTENT": "retreat"}
     assert jev_action_weights(ACTIONS, d, aim_ok=True)["attack"] == 0.3
+
+
+def test_spike_reflex_not_vetoable():
+    # attack spiked with the gate open: fires even when the INTENT posture
+    # (retreat, weight 0.3) would otherwise suppress it
+    decoded = {"scores": {"attack": 0.3, "turn_left": 0.6, "backward": 0.1,
+                          "noop": 0.0},
+               "selected": "attack", "combo": ["attack"],
+               "attack_spiked": True}
+    out = apply_action_weighting(decoded, {"attack": 0.3, "turn_left": 1.5,
+                                           "backward": 1.6, "noop": 1.0})
+    assert out["selected"] == "attack" and out["combo"] == ["attack"]
+    # same scores WITHOUT a spike: strategy veto applies normally
+    decoded2 = dict(decoded, attack_spiked=False)
+    out2 = apply_action_weighting(decoded2, {"attack": 0.3, "turn_left": 1.5,
+                                             "backward": 1.6, "noop": 1.0})
+    assert out2["selected"] != "attack"
+    # spike but geometry gate closed (attack score zeroed): no shot
+    decoded3 = {"scores": {"attack": 0.0, "turn_left": 0.6, "backward": 0.4,
+                           "noop": 0.0},
+                "selected": "turn_left", "combo": ["turn_left"],
+                "attack_spiked": True}
+    out3 = apply_action_weighting(decoded3, {"attack": 1.0, "turn_left": 1.0,
+                                             "backward": 1.0, "noop": 1.0})
+    assert out3["selected"] != "attack"

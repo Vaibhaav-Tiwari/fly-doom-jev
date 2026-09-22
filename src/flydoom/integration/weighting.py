@@ -91,7 +91,14 @@ def apply_action_weighting(decoded: dict, weights: dict[str, float]) -> dict:
     Keeps `neural_scores` (the raw decoder output) alongside the weighted
     `scores` so consumers can see BOTH sides of the gate. Combo decoding is
     reduced to the single weighted selection (documented in
-    docs/RECORDING_FORMAT.md)."""
+    docs/RECORDING_FORMAT.md).
+
+    HARD REFLEX (owner-approved 2026-09-22): when the attack readout actually
+    SPIKED this step with the geometry gate open (`attack_spiked` and a
+    nonzero raw attack score), the shot fires immediately and Jev strategy
+    cannot veto it — 'enemy dead ahead => every neural spike shoots
+    immediately'. Without a spike, the INTENT posture bias suppresses the
+    rate-based advisory path as before (retreat x0.3)."""
     raw = dict(decoded["scores"])
     weighted = {a: raw.get(a, 0.0) * weights.get(a, 1.0)
                 for a in raw if a != "noop"}
@@ -115,4 +122,7 @@ def apply_action_weighting(decoded: dict, weights: dict[str, float]) -> dict:
     out["confidence"] = confidence
     out["combo"] = [] if selected == "noop" else [selected]
     out["jev_weights"] = {a: round(w, 4) for a, w in weights.items()}
+    if decoded.get("attack_spiked") and raw.get("attack", 0.0) > 0.0:
+        out["selected"] = "attack"  # hard spike reflex: not vetoable
+        out["combo"] = ["attack"]
     return out

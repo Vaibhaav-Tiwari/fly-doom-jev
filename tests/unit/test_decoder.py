@@ -99,3 +99,26 @@ def test_settle_mutes_motor_and_calibrates():
                                  np.zeros((2, 2, 3), np.uint8), dec, None,
                                  10, 1.0, 0.0)
     assert meta0 == {"enabled": False}
+
+
+def test_spike_triggered_attack():
+    import numpy as np
+    from tests.unit.test_reflexes import _typed_decoder
+    dec = _typed_decoder()
+    # attack DN (idx 3) quiet on the RATE channel (below the 5 Hz legacy
+    # threshold) but it SPIKED this step -> hair trigger fires when aimed
+    rates = np.zeros(4, dtype=np.float32)
+    spikes = np.array([0, 0, 0, 1], dtype=np.int32)
+    d = dec.decode(rates, aim_ok=True, spikes=spikes)
+    assert d["attack_spiked"] is True
+    assert d["selected"] == "attack" and "attack" in d["combo"]
+    # geometry gate stays on top: same spike, no target -> no shot
+    d2 = dec.decode(rates, aim_ok=False, spikes=spikes)
+    assert d2["selected"] != "attack" and d2["scores"]["attack"] == 0.0
+    # no spike -> no attack even aimed, regardless of the rate channel
+    d3 = dec.decode(rates, aim_ok=True, spikes=np.zeros(4, dtype=np.int32))
+    assert d3["attack_spiked"] is False and d3["scores"]["attack"] == 0.0
+    # spikes=None -> legacy rate threshold preserved (back-compat)
+    hot = np.array([0.0, 0.0, 0.0, 50.0], dtype=np.float32)
+    d4 = dec.decode(hot, aim_ok=True, spikes=None)
+    assert d4["selected"] == "attack"

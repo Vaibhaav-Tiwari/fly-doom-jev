@@ -372,7 +372,8 @@ class LiveLoop(threading.Thread):
             engine.step(steps_neural)
             from flydoom.motor.reflexes import aim_in_reticle
             aim = aim_in_reticle(obs, aim_cone, aim_range)
-            decoded = decoder.decode(engine.rate, aim_ok=aim)
+            decoded = decoder.decode(engine.rate, aim_ok=aim,
+                                     spikes=getattr(engine, "counts", None))
             if weighting:
                 decoded = apply_weighting(
                     decoded, weights_of(list(decoded["scores"]), decision,
@@ -444,6 +445,7 @@ class LiveLoop(threading.Thread):
                 "motor": {"selected": decoded["selected"],
                           "combo": combo,
                           "aim_ok": aim,
+                          "attack_spiked": bool(decoded.get("attack_spiked", False)),
                           "turn_offset": round(float(getattr(
                               decoder, "turn_offset", 0.0)), 4),
                           "scores": {k: round(float(v), 4)
@@ -500,6 +502,7 @@ class LiveLoop(threading.Thread):
                           "combo": combo,
                           "confidence": round(float(decoded["confidence"]), 4),
                           "aim_ok": aim,
+                          "attack_spiked": bool(decoded.get("attack_spiked", False)),
                           "unstuck": bool(forced),
                           "neural_scores": decoded.get("neural_scores"),
                           "jev_weights": decoded.get("jev_weights"),

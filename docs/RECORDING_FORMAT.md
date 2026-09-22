@@ -215,6 +215,14 @@ Notes for consumers:
   visible, inside the `attack_aim_cone_deg` cone of screen center, and within
   `attack_range` (true ViZDoom label geometry). Attack scores are zeroed when
   false; every recorded attack step should have `aim_ok: true`.
+- `motor.attack_spiked` (2.2+): the attack trigger is SPIKE-LEVEL
+  (doomfly-style hair trigger, owner-approved 2026-09-22): true when any
+  neuron in the attack readout set (DNg02_a) spiked during the controller
+  step. A spike + `aim_ok` fires attack THAT step — the sustained-rate
+  threshold (`attack_threshold`, default 5 Hz) is kept in config only for
+  telemetry/back-compat (the spikes=None legacy path used by tests). Our
+  deliberate difference from doomfly: the geometry gate stays on top, so no
+  spikes are wasted on walls. Works identically in both controllers.
 - `motor.unstuck` (2.2+): true on steps where the wall-stuck reflex forced
   the action (scenario_profiles unstuck; E1M1 default on).
 - `header.scenario_profile` (2.2+): the active per-scenario control profile —

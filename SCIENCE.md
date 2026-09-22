@@ -82,12 +82,15 @@
 - **Aim gate (true geometry)**: attack fires only when an enemy is visible,
   inside a 14° cone of screen center, and within range — computed from
   ViZDoom's label-derived enemy fields (`motor/reflexes.aim_in_reticle`), not
-  from a neural proxy. The gate only PERMITS attack; the neural attack channel
-  still decides (raw channel rates stay in telemetry). **Reflex-speed rule**
-  (owner-approved): on `aim_ok` steps the Jev attack weight is 1.0 × the
-  INTENT posture bias, bypassing the ~1.5 s-stale ATTACK probability — a
-  clear shot must not wait on Jev; strategy can still suppress it (retreat
-  ×0.3). Chosen architecture.
+  from a neural proxy. The trigger itself is **spike-level** (doomfly-style:
+  any spike in the DNg02_a attack readout during the controller step presses
+  attack for that step); the gate only PERMITS attack — our deliberate
+  difference from doomfly is that spikes without a target never reach the
+  game (raw channel rates stay in telemetry). Identical in both controllers.
+  **Reflex-speed rule** (owner-approved): on `aim_ok` steps the Jev attack
+  weight is 1.0 × the INTENT posture bias, bypassing the ~1.5 s-stale ATTACK
+  probability — a clear shot must not wait on Jev; strategy can still
+  suppress it (retreat ×0.3). Chosen architecture.
 - **Unstuck reflex** (E1M1 profile): commanding movement with <6 map units of
   XY displacement over 2.5 s of game time forces a 1 s turn (alternating
   direction). Engineering reflex against wall-parking, not biology. It also

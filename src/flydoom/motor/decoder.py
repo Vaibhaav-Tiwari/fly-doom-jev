@@ -5,13 +5,19 @@ maps their population rates to joystick channels:
 
     turn    = gain * (rate(DNa02, R) - rate(DNa02, L))   # turning DN pair
     forward = gain * (rate(DNp09) + rate(DNg100) - rate(MDN))
-    attack  = gain * rate(DNpe017)                        # BCI-style readout
+    attack  = SPIKE-TRIGGERED: any spike in the DNg02_a readout set during
+              the controller step presses attack for that step (doomfly-style
+              hair trigger: "a spike presses attack for one game tic"),
+              still subject to the true-geometry aim gate (our deliberate
+              difference from doomfly: no spikes wasted on walls)
 
 Biological grounding: DNa02 turning (Rayshubskiy et al. 2020), DNp09 forward
 walking, MDN backward (Carreira-Rosario et al. 2018), DNg100/BDN2 forward
 (Sapkal et al. 2024). The attack readout and all gains are ENGINEERING joystick
 mappings, not biology (SCIENCE.md, PROVENANCE.md). All mappings/gains are
-configurable.
+configurable. The sustained-rate attack threshold (attack_threshold) remains
+in config for telemetry/back-compat (spikes=None fallback, tests) but the
+live trigger is spike-level.
 
 BankDecoder (v1) remains for graphs without type annotations (fixtures).
 """
@@ -125,6 +131,10 @@ class TypedDNDecoder:
                 "contributing": self.contributing(),
                 "gains": self.gains, "thresholds": self.mins,
                 "attack_aim_gate": self.attack_aim_gate,
+                "attack_trigger": "spike-level: any spike in the attack readout "
+                                  "set during the controller step fires attack "
+                                  "(geometry-gated); attack_threshold is the "
+                                  "legacy rate fallback (spikes=None)",
                 "baseline_compensated": self.baseline is not None,
                 "turn_offset": round(self.turn_offset, 4),
                 "evidence_class": "typed DN identities biological; channel gains "
@@ -157,8 +167,11 @@ class TypedDNDecoder:
         return out
 
     def decode(self, full_rates: np.ndarray,
-               aim_ok: bool | None = None) -> dict:
+               aim_ok: bool | None = None,
+               spikes: np.ndarray | None = None) -> dict:
         """full_rates: per-neuron rates for ALL neurons (engine.rate).
+        spikes: per-neuron spike counts for the step (engine.counts) — the
+        attack trigger. None -> legacy sustained-rate threshold (tests).
 
         aim_ok: the WORKING aim gate — true enemy geometry from the game
         (ViZDoom labels: enemy visible + inside the aim cone + within range),
@@ -169,9 +182,17 @@ class TypedDNDecoder:
         imb = self.imbalances(rates)
         scores = {a: 0.0 for a in self.actions}
         selected, confidence = "noop", 1.0
+        attack_spiked = False
         if "attack" in scores:
-            scores["attack"] = float(max(0.0, ch.get("attack", 0.0))
-                                     / max(self.mins["attack"], 1e-9))
+            if spikes is not None:
+                # hair trigger: any spike in the attack readout set this step
+                pos = self._sets.get("attack", {}).get("positive", [])
+                attack_spiked = bool(len(pos)
+                                     and np.asarray(spikes)[pos].sum() > 0)
+                scores["attack"] = 1.0 if attack_spiked else 0.0
+            else:  # legacy sustained-rate trigger (back-compat, tests)
+                scores["attack"] = float(max(0.0, ch.get("attack", 0.0))
+                                         / max(self.mins["attack"], 1e-9))
         turn = imb.get("turn", 0.0) - self.turn_offset  # spawn-calibrated zero
         if "turn_left" in scores:
             scores["turn_left"] = float(max(0.0, -turn))
@@ -215,6 +236,7 @@ class TypedDNDecoder:
         probs["noop"] = 1.0 if selected == "noop" else 0.0
         return {"scores": probs, "selected": selected, "confidence": confidence,
                 "combo": combo,
+                "attack_spiked": attack_spiked,
                 "channels": ch, "imbalances": {k: round(v, 4) for k, v in imb.items()},
                 "readout_rates": {c: {"positive": self._mean(ss["positive"], rates),
                                       "negative": self._mean(ss["negative"], rates)}
@@ -269,9 +291,11 @@ class BankDecoder:
                 "evidence_class": "engineering_hypothesis (arbitrary bank split)"}
 
     def decode(self, full_rates: np.ndarray,
-               aim_ok: bool | None = None) -> dict:
+               aim_ok: bool | None = None,
+               spikes: np.ndarray | None = None) -> dict:
         """full_rates: per-neuron rates for ALL neurons (engine.rate).
-        aim_ok accepted for interface parity (unused by the bank decoder)."""
+        aim_ok / spikes accepted for interface parity (unused by the bank
+        decoder)."""
         if self.baseline is not None:
             full_rates = np.maximum(np.asarray(full_rates, dtype=np.float64)
                                     - self.baseline, 0.0)

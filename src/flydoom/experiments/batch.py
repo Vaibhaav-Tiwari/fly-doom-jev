@@ -127,7 +127,8 @@ def run_arm_episode(cfg: dict, scen_cfg: dict, env, engine, vision_kind,
             engine.step(steps_neural)
 
             aim = aim_in_reticle(obs, aim_cone, aim_range)
-            decoded = decoder.decode(engine.rate, aim_ok=aim)
+            decoded = decoder.decode(engine.rate, aim_ok=aim,
+                                     spikes=getattr(engine, "counts", None))
             if weighting:
                 decoded = apply_action_weighting(
                     decoded, jev_action_weights(list(decoded["scores"]), decision,
