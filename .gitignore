@@ -36,3 +36,4 @@ engine/native/build/
 outputs/connectome_assets/*
 outputs/batch/*
 outputs/learning/*
+PROJECT_JOURNEY.md  # owner's private journey doc — never push
