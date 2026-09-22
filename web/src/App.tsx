@@ -163,6 +163,10 @@ export default function App() {
     ? (liveSnapshot?.controller ?? controller)
     : (state.controller === 'brain' ? 'brain' : 'jev');
   const jevBypassed = mode === 'live' && activeController === 'brain';
+  const neuronTotal = recording?.connectomeData?.count
+    ?? recording?.header.connectome?.n_neurons
+    ?? recording?.staticNeurons.length
+    ?? 0;
 
   const selectController = (next: ControllerMode) => {
     setController(next);
@@ -174,19 +178,21 @@ export default function App() {
 
   return <div className="experience">
     <header>
-      <a className="logo" href="#"><BrainCircuit/><div><b>FLY//DOOM</b><small>JEV DRIVES A CONNECTOME</small></div></a>
-      <div className="mode-switch" aria-label="Experience mode">
-        <button className={mode === 'live' ? 'active' : ''} onClick={() => switchMode('live')}><Radio/> LIVE</button>
-        <button className={mode === 'recorded' ? 'active' : ''} onClick={() => switchMode('recorded')}><Database/> RECORDED</button>
-      </div>
-      {mode === 'recorded' && <div className="run-select"><Database/><select value={selected} onChange={event => setSelected(event.target.value)}>{catalog.map(item => <option value={item.id} key={item.id}>{item.title}</option>)}</select><ChevronDown/></div>}
-      <div className="launch-controls">
-        {mode === 'live' && <label>MAP<select aria-label="DOOM scenario" value={scenario} onChange={event => setScenario(event.target.value as 'fly_arena' | 'e1m1')}><option value="fly_arena">FLY ARENA</option><option value="e1m1">E1M1</option></select></label>}
-        {mode === 'live' && <div className="controller-switch" role="group" aria-label="Controller architecture">
-          <button className={controller === 'jev' ? 'active' : ''} onClick={() => selectController('jev')} aria-pressed={controller === 'jev'}>JEV + BRAIN</button>
-          <button className={controller === 'brain' ? 'active' : ''} onClick={() => selectController('brain')} aria-pressed={controller === 'brain'}>BRAIN ONLY</button>
-        </div>}
-        <button className={liveRunning ? 'live-cta' : ''} onClick={mode === 'live' ? startLive : toggleRecording}>{mode === 'live' ? (liveRunning ? <RotateCcw/> : <Play/>) : (playing ? <Pause/> : <Play/>)} {mode === 'live' ? (liveRunning ? 'NEW GAME' : 'PLAY') : (playing ? 'PAUSE' : 'PLAY')}</button>
+      <a className="logo" href="#"><BrainCircuit/><div><b>DOOM, PLAYED BY A FRUIT FLY CONNECTOME</b><small>{neuronTotal.toLocaleString()} neurons · MaleCNS v1.0 · synchronized game, brain and decisions</small></div></a>
+      <div className="header-controls">
+        <div className="mode-switch" aria-label="Experience mode">
+          <button className={mode === 'live' ? 'active' : ''} onClick={() => switchMode('live')}><Radio/> LIVE</button>
+          <button className={mode === 'recorded' ? 'active' : ''} onClick={() => switchMode('recorded')}><Database/> RECORDED</button>
+        </div>
+        {mode === 'recorded' && <div className="run-select"><Database/><select value={selected} onChange={event => setSelected(event.target.value)}>{catalog.map(item => <option value={item.id} key={item.id}>{item.title}</option>)}</select><ChevronDown/></div>}
+        <div className="launch-controls">
+          {mode === 'live' && <label>MAP<select aria-label="DOOM scenario" value={scenario} onChange={event => setScenario(event.target.value as 'fly_arena' | 'e1m1')}><option value="fly_arena">FLY ARENA</option><option value="e1m1">E1M1</option></select></label>}
+          {mode === 'live' && <div className="controller-switch" role="group" aria-label="Controller architecture">
+            <button className={controller === 'jev' ? 'active' : ''} onClick={() => selectController('jev')} aria-pressed={controller === 'jev'}>JEV + BRAIN</button>
+            <button className={controller === 'brain' ? 'active' : ''} onClick={() => selectController('brain')} aria-pressed={controller === 'brain'}>BRAIN ONLY</button>
+          </div>}
+          <button className={liveRunning ? 'live-cta' : ''} onClick={mode === 'live' ? startLive : toggleRecording}>{mode === 'live' ? (liveRunning ? <RotateCcw/> : <Play/>) : (playing ? <Pause/> : <Play/>)} {mode === 'live' ? (liveRunning ? 'NEW GAME' : 'PLAY') : (playing ? 'PAUSE' : 'PLAY')}</button>
+        </div>
       </div>
     </header>
     <main>

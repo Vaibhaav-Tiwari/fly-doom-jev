@@ -92,7 +92,8 @@ export default function BrainView({recording, step}: {recording: Recording; step
         const x = bundle.positions[j], y = bundle.positions[j + 1], z = bundle.positions[j + 2];
         const group = bundle.populationNames[bundle.population[i]] ?? 'other';
         if ((bundle.flags[i] & 16) && Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)
-          && !vncGroups.has(group) && y < VNC_DISPLAY_CUTOFF_Y) {
+          && !vncGroups.has(group) && group !== 'ascending_neuron' && group !== 'descending_neuron'
+          && y < VNC_DISPLAY_CUTOFF_Y) {
           out.push({index: i, position: [x, y, z], group});
         }
       }
@@ -120,9 +121,9 @@ export default function BrainView({recording, step}: {recording: Recording; step
     if (!el || !neurons.length) return;
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(35, 1, .1, 100);
-    // Hold a stable, informative three-quarter view until the visitor chooses
-    // to orbit the anatomy themselves.
-    camera.position.set(4.5, 2.1, 9.5);
+    // Start from the standard frontal anatomical view shown in the reference.
+    // Orbit remains available, but the brain does not move until the visitor drags.
+    camera.position.set(0, 0, 11);
     const renderer = new THREE.WebGLRenderer({antialias: false, alpha: true, powerPreference: 'high-performance'});
     renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     el.appendChild(renderer.domElement);
@@ -176,8 +177,11 @@ export default function BrainView({recording, step}: {recording: Recording; step
     let maxRadiusSq = 0;
     neurons.forEach((n, i) => {
       const j = i * 3;
-      positions[j] = (n.position[0] - center.x) * scale;
-      positions[j + 1] = (n.position[1] - center.y) * scale;
+      // MaleCNS source coordinates arrive inverted relative to the familiar
+      // frontal anatomical view. Rotate the display 180° in-plane so the
+      // central brain sits above the optic lobes, matching the reference view.
+      positions[j] = -(n.position[0] - center.x) * scale;
+      positions[j + 1] = -(n.position[1] - center.y) * scale;
       positions[j + 2] = (n.position[2] - center.z) * scale;
       maxRadiusSq = Math.max(maxRadiusSq, positions[j] ** 2 + positions[j + 1] ** 2 + positions[j + 2] ** 2);
       dummy.position.set(positions[j], positions[j + 1], positions[j + 2]);
