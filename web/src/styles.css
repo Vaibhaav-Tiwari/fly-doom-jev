@@ -338,3 +338,20 @@ main { width: 100%; padding: 10px 14px 14px; }
   .scores { min-height: 150px; }
   .activity-legend { right: 12px; flex-wrap: wrap; gap: 8px 12px; }
 }
+
+.minimap {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(126, 200, 255, 0.14);
+  border-radius: 10px;
+  background: rgba(8, 14, 20, 0.6);
+  max-width: 260px;
+}
+.minimap small {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: #7e94a6;
+  margin-bottom: 6px;
+}
+.minimap svg { display: block; }

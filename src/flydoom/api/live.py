@@ -27,6 +27,7 @@ import copy
 import io
 import json
 import logging
+import math
 import os
 import sys
 import threading
@@ -123,6 +124,17 @@ class LiveLoop(threading.Thread):
             jev_client, cadence_hz=float(jev_cfg.get("cadence_hz", 3.0)),
             fast_questions=tuple(jev_cfg.get("fast_questions", ["ATTACK"])),
             strategy_period_s=jev_cfg.get("strategy_period_s"))
+        # Persistent strategy memory (owner-directed "train Jev's behavior"):
+        # episode outcomes survive restarts so Jev's prompt carries long-term
+        # lessons, not just this process's last 3 episodes.
+        try:
+            mem = Path("outputs/learning/jev_memory.jsonl")
+            if mem.exists():
+                scheduler.episode_history = [
+                    json.loads(l)["summary"]
+                    for l in mem.read_text().splitlines()[-3:] if l.strip()]
+        except (OSError, json.JSONDecodeError, KeyError):
+            pass
         bridge = JevBridge(connectome, cfg["bridge"]["mappings"],
                            gain=float(cfg["bridge"].get("gain", 30.0)),
                            choice_mappings=cfg["bridge"].get("choice_mappings"))
@@ -250,6 +262,18 @@ class LiveLoop(threading.Thread):
         if assist_hold > 0:
             from flydoom.motor.reflexes import AimAssistReflex
             assist = AimAssistReflex(hold_steps=assist_hold)
+        # Level goals (owner-directed): fly_arena is CLEARED when all enemies
+        # are dead (no wandering after the last kill); e1m1 is CLEARED by
+        # reaching the real exit linedef (geometry from e1m1_map.json), and
+        # the exit bearing/distance feeds both /state (minimap) and Jev.
+        goal = None
+        if scenario == "e1m1":
+            mp = Path(__file__).parents[1] / "scenarios" / "e1m1_map.json"
+            if mp.exists():
+                _m = json.loads(mp.read_text())
+                if _m.get("exit"):
+                    goal = (float(_m["exit"][0]), float(_m["exit"][1]))
+        arena_enemies = int(scen_cfg.get("enemy_count", 3))
         run_id = (time.strftime("live-%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6])
         writer = RecordingWriter(rec_cfg.get("directory", "outputs/recordings"),
                                  run_id=run_id,
@@ -349,6 +373,17 @@ class LiveLoop(threading.Thread):
             state = encode_state(obs, env.available_actions,
                                  recent_damage=max(0.0, health_hist[0]
                                                    - float(obs.health)))
+            goal_pub = None
+            if goal is not None:
+                gdx, gdy = goal[0] - obs.position_x, goal[1] - obs.position_y
+                goal_dist = math.hypot(gdx, gdy)
+                goal_pub = {"x": goal[0], "y": goal[1],
+                            "dist": round(goal_dist, 1),
+                            "bearing_deg": round(math.degrees(
+                                math.atan2(gdy, gdx)), 1)}
+                state["goal"] = {"exit_dist_units": round(goal_dist, 1),
+                                 "exit_bearing_deg": goal_pub["bearing_deg"],
+                                 "note": "reach the exit lift to clear E1M1"}
             if controller == "jev":
                 scheduler.update_state(state)
                 decision = scheduler.get_decision()
@@ -404,6 +439,12 @@ class LiveLoop(threading.Thread):
                     combo = ["attack", *combo] if combo else ["attack"]
             result = env.step(combo)
             obs = result.observation
+            cleared = None
+            if scenario == "fly_arena" and float(obs.kills) >= arena_enemies:
+                cleared = "arena_cleared"
+            elif goal is not None and math.hypot(obs.position_x - goal[0],
+                                                 obs.position_y - goal[1]) <= 96.0:
+                cleared = "e1m1_cleared"
             total_reward += result.reward
             health_hist.append(float(obs.health))
             if plasticity:
@@ -455,6 +496,9 @@ class LiveLoop(threading.Thread):
                          "alive_s": round(obs.episode_tic / 35.0, 2),
                          "unstuck": bool(forced),
                          "episode": episode_i},
+                "position": {"x": float(obs.position_x),
+                             "y": float(obs.position_y)},
+                "goal": goal_pub,
                 "motor": {"selected": decoded["selected"],
                           "combo": combo,
                           "aim_ok": aim,
@@ -529,6 +573,9 @@ class LiveLoop(threading.Thread):
                 "learning": plasticity.stats() if plasticity else None,
                 "controller_latency_ms": round(latencies[-1], 3),
             })
+            if cleared:
+                reset_reason = cleared
+                break
             if result.done:
                 break
             elapsed = time.perf_counter() - t_step
@@ -572,8 +619,18 @@ class LiveLoop(threading.Thread):
             self._last_checkpoint_t = time.time()
         cause = ("died (health 0)" if float(obs.health) <= 0
                  else reset_reason.replace("_", " "))
-        scheduler.note_episode_outcome(
-            f"survived {episode['survival_s']}s, {int(obs.kills)} kills, {cause}")
+        summary = (f"survived {episode['survival_s']}s, "
+                   f"{int(obs.kills)} kills, {cause}")
+        scheduler.note_episode_outcome(summary)
+        try:
+            mp = Path("outputs/learning/jev_memory.jsonl")
+            mp.parent.mkdir(parents=True, exist_ok=True)
+            lines = (mp.read_text().splitlines() if mp.exists() else [])[-49:]
+            lines.append(json.dumps({"run_id": run_id, "controller": controller,
+                                     "scenario": scenario, "summary": summary}))
+            mp.write_text("\n".join(lines) + "\n")
+        except OSError:
+            pass
         log.info("live episode %d done: run_id=%s tics=%d kills=%d reason=%s",
                  episode_i, run_id, int(obs.episode_tic), int(obs.kills),
                  reset_reason)

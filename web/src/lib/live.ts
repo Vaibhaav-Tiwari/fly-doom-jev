@@ -38,7 +38,9 @@ export function liveSnapshotToStep(snapshot: LiveSnapshot): ReplayStep {
     t_ms: (snapshot.game?.alive_s ?? 0) * 1000,
     controller_step: snapshot.sequence,
     frame: snapshot.frame,
-    state: {...snapshot.game, scenario: snapshot.scenario, controller: snapshot.controller},
+    state: {...snapshot.game, scenario: snapshot.scenario, controller: snapshot.controller,
+            position_x: snapshot.position?.x, position_y: snapshot.position?.y,
+            goal: snapshot.goal ?? null},
     activity: retinalInput == null ? snapshot.activity : {...snapshot.activity, retinal_input: retinalInput},
     populations,
     motor: {

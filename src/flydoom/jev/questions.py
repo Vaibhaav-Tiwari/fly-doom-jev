@@ -127,9 +127,13 @@ SYSTEMONE_QUESTIONS: dict[str, dict] = {
                         "aim_offset_deg (0 = centered), enemy_distance (0 = "
                         "point-blank, 1 = far), health, ammo, "
                         "recent_damage_taken (hp lost in the last second), kills, "
-                        "alive_s. state.memory.recent_episodes lists how your "
-                        "recent episodes ended — if you keep dying fast, try a "
-                        "different posture.",
+                        "alive_s. On E1M1, state.goal gives exit_dist_units and "
+                        "exit_bearing_deg (0 = east, +90 = north) — the level is "
+                        "CLEARED by reaching the exit lift, so when no enemy "
+                        "threatens, prefer the posture that closes that distance. "
+                        "state.memory.recent_episodes lists how your "
+                        "recent episodes ended (persistent across restarts) — if "
+                        "you keep dying fast, try a different posture.",
         "criteria": {
             "engage": "close with the visible enemy and fight",
             "retreat": "increase distance from the threat (low health or heavy "

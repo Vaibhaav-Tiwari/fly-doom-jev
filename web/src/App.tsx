@@ -5,6 +5,7 @@ import {loadCatalog, loadRecording, nearestStep, pct} from './lib/recording';
 import {getLiveHealth, getLiveState, liveSnapshotToStep, startFreshLiveRun} from './lib/live';
 import BrainView from './components/BrainView';
 import DoomViewport from './components/DoomViewport';
+import Minimap from './components/Minimap';
 
 type Mode = 'live' | 'recorded';
 type LivePhase = 'checking' | 'ready' | 'connecting' | 'playing' | 'offline';
@@ -200,6 +201,9 @@ export default function App() {
         <div className="game-side">
           <div className="game-head"><span>DOOM · {mode === 'live' ? (liveSnapshot?.scenario ?? scenario).replaceAll('_', ' ').toUpperCase() : 'RECORDED'}</span><div><i/> {mode === 'live' ? liveNotice : 'SYNCED RECORDING'}</div></div>
           <DoomViewport recording={recording} step={step} mode={mode}/>
+          {mode === 'live' && (liveSnapshot?.scenario ?? scenario) === 'e1m1' &&
+            <Minimap x={state.position_x as number | undefined} y={state.position_y as number | undefined}
+                     goalDist={(state.goal as {dist?: number} | null | undefined)?.dist}/>}
           <div className="game-stats">
             <div><Heart/><span>HEALTH</span><b>{Number(state.health ?? 0).toFixed(0)}</b></div>
             <div><Zap/><span>AMMO</span><b>{Number(state.ammo ?? 0).toFixed(0)}</b></div>
