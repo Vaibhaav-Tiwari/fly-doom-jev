@@ -122,9 +122,14 @@ class LiveLoop(threading.Thread):
         bridge = JevBridge(connectome, cfg["bridge"]["mappings"],
                            gain=float(cfg["bridge"].get("gain", 30.0)),
                            choice_mappings=cfg["bridge"].get("choice_mappings"))
-        decoder = make_decoder(connectome, cfg)
+        from flydoom.config import apply_scenario_profile
+        scen_cfg = apply_scenario_profile(
+            cfg, cfg["environment"].get("scenario", "fly_arena"))
+        decoder = make_decoder(connectome, scen_cfg)  # profiled motor settings
         if tonic_meta.get("enabled"):
             decoder.set_baseline(engine.rate.copy())
+        dec_baseline = decoder.baseline  # re-applied when the decoder is
+                                         # rebuilt on a scenario switch
         from flydoom.integration.weighting import (apply_action_weighting,
                                                    jev_action_weights)
         weighting = bool(cfg["jev"].get("action_weighting", False))
@@ -158,6 +163,12 @@ class LiveLoop(threading.Thread):
                     env_cfg["environment"]["scenario"] = scenario
                     env = make_env(env_cfg)
                     step_period_s = env.frame_skip / 35.0
+                    # scenario-aware control profile: rebuild the decoder with
+                    # the profile-merged motor settings (aim gate, forward_min)
+                    scen_cfg = apply_scenario_profile(self.cfg, scenario)
+                    decoder = make_decoder(connectome, scen_cfg)
+                    if dec_baseline is not None:
+                        decoder.set_baseline(dec_baseline)
                     log.info("live scenario switched to %s", scenario)
                 self._pending_scenario = None
                 if (self._pending_controller is not None
@@ -182,7 +193,7 @@ class LiveLoop(threading.Thread):
                     motor_ids=motor_ids, assets_ref=assets_ref, rec_cfg=rec_cfg,
                     step_period_s=step_period_s, connectome=connectome,
                     plasticity=plasticity, shaped_reward=shaped_reward,
-                    controller=self.controller)
+                    controller=self.controller, scen_cfg=scen_cfg)
                 # learned weights persist across natural episode ends (that is
                 # the point); a manual reset (POST /new) starts the fly fresh
                 if plasticity and reason == "manual_reset":
@@ -198,8 +209,20 @@ class LiveLoop(threading.Thread):
                      dt_neural, ms_per_tic, tonic_meta, weighting,
                      apply_weighting, weights_of, scenario, pop_sample, top_k,
                      motor_idx, motor_ids, assets_ref, rec_cfg, step_period_s,
-                     connectome, plasticity, shaped_reward, controller) -> str:
+                     connectome, plasticity, shaped_reward, controller,
+                     scen_cfg) -> str:
         import uuid
+        motor_cfg = scen_cfg.get("motor", {})
+        aim_cone = float(motor_cfg.get("attack_aim_cone_deg", 14.0))
+        aim_range = float(motor_cfg.get("attack_range", 0.45))
+        unstuck_cfg = scen_cfg.get("unstuck", {})
+        unstuck = None
+        if unstuck_cfg.get("enabled"):
+            from flydoom.motor.reflexes import UnstuckReflex
+            unstuck = UnstuckReflex(
+                window_s=float(unstuck_cfg.get("window_s", 2.5)),
+                epsilon=float(unstuck_cfg.get("epsilon", 6.0)),
+                turn_s=float(unstuck_cfg.get("turn_s", 1.0)))
         run_id = (time.strftime("live-%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6])
         writer = RecordingWriter(rec_cfg.get("directory", "outputs/recordings"),
                                  run_id=run_id,
@@ -219,6 +242,11 @@ class LiveLoop(threading.Thread):
                             "scenario": getattr(env, "scenario", "fixture"),
                             "skill": getattr(env, "skill", None),
                             "actions": env.available_actions},
+            "scenario_profile": {"scenario": scenario,
+                                 "motor": {"forward_min": motor_cfg.get("forward_min"),
+                                           "attack_aim_cone_deg": aim_cone,
+                                           "attack_range": aim_range},
+                                 "unstuck": unstuck_cfg or None},
             "vision": {"pathway": vision_kind},
             "neural": {"timestep_ms": dt_neural,
                        "steps_per_controller_step": steps_neural,
@@ -315,11 +343,23 @@ class LiveLoop(threading.Thread):
                 np.fromiter(combined.values(), dtype=np.float32))
 
             engine.step(steps_neural)
-            decoded = decoder.decode(engine.rate)
+            from flydoom.motor.reflexes import aim_in_reticle
+            aim = aim_in_reticle(obs, aim_cone, aim_range)
+            decoded = decoder.decode(engine.rate, aim_ok=aim)
             if weighting:
                 decoded = apply_weighting(
                     decoded, weights_of(list(decoded["scores"]), decision))
             combo = decoded.get("combo") or [decoded["selected"]]
+            forced = None
+            if unstuck is not None:
+                forced = unstuck.update(
+                    obs.position_x, obs.position_y,
+                    trying_to_move=any(a in ("forward", "backward")
+                                       for a in combo),
+                    t_game_s=obs.episode_tic / 35.0)
+                if forced:
+                    combo = [forced]
+                    decoded["selected"] = forced
             result = env.step(combo)
             obs = result.observation
             total_reward += result.reward
@@ -349,6 +389,8 @@ class LiveLoop(threading.Thread):
             self._publish({
                 "run_id": run_id,
                 "scenario": scenario,
+                "profile": scenario,  # active scenario_profiles entry (per-scenario
+                                      # control settings: aim cone, forward_min, unstuck)
                 "controller": controller,
                 "sequence": sequence,
                 "generated_at_ms": round(now * 1000.0, 1),
@@ -358,9 +400,11 @@ class LiveLoop(threading.Thread):
                          "enemies": (env.live_enemy_count()
                                      if hasattr(env, "live_enemy_count") else None),
                          "alive_s": round(obs.episode_tic / 35.0, 2),
+                         "unstuck": bool(forced),
                          "episode": episode_i},
                 "motor": {"selected": decoded["selected"],
                           "combo": combo,
+                          "aim_ok": aim,
                           "scores": {k: round(float(v), 4)
                                      for k, v in decoded["scores"].items()},
                           "neural_scores": ({k: round(float(v), 4)
@@ -412,6 +456,8 @@ class LiveLoop(threading.Thread):
                           "selected": decoded["selected"],
                           "combo": combo,
                           "confidence": round(float(decoded["confidence"]), 4),
+                          "aim_ok": aim,
+                          "unstuck": bool(forced),
                           "neural_scores": decoded.get("neural_scores"),
                           "jev_weights": decoded.get("jev_weights"),
                           "channels": {k: round(v, 4)
@@ -449,6 +495,7 @@ class LiveLoop(threading.Thread):
             if latencies else {},
             "neural_total_spikes": engine.total_spikes,
             "behavior": _behavior_metrics(beh),
+            "unstuck_triggers": unstuck.triggers if unstuck else 0,
             "learning": ({**plasticity.stats(),
                           "delta_sha256_16": plasticity.delta_sha()}
                          if plasticity else None),

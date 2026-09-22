@@ -130,7 +130,7 @@ Neuron indexing contract (the frontend depends on this):
     "enemy_visible": true, "enemy_distance": 0.55, "enemy_angle": -0.49,
     "threat_level": 0.57, "available_actions": ["..."],
     "enemy_in_view": true, "aim_offset_deg": -44.1, "alive_s": 1.14,
-    "recent_damage_taken": 4.0
+    "recent_damage_taken": 4.0, "position_x": 1050.5, "position_y": -3600.0
   },
   "jev": {
     "request_id": "mock-000012",
@@ -203,9 +203,19 @@ Notes for consumers:
   score the selection came from. Chosen architecture, not biology.
 - `state.schema_version` 1.2 adds the Jev-facing strategy view (additive):
   `enemy_in_view` (alias of `enemy_visible`), `aim_offset_deg`
-  (`enemy_angle` x 90), `alive_s` (`episode_tic`/35), and
+  (`enemy_angle` x 90), `alive_s` (`episode_tic`/35),
   `recent_damage_taken` (hp lost over the last ~1 s of game time, 0 when the
-  backend does not track it).
+  backend does not track it), and `position_x` / `position_y` (map units —
+  movement/parking evidence for the unstuck reflex).
+- `motor.aim_ok` (2.2+): the WORKING aim gate — true when an enemy was
+  visible, inside the `attack_aim_cone_deg` cone of screen center, and within
+  `attack_range` (true ViZDoom label geometry). Attack scores are zeroed when
+  false; every recorded attack step should have `aim_ok: true`.
+- `motor.unstuck` (2.2+): true on steps where the wall-stuck reflex forced
+  the action (scenario_profiles unstuck; E1M1 default on).
+- `header.scenario_profile` (2.2+): the active per-scenario control profile —
+  `{"scenario", "motor": {forward_min, attack_aim_cone_deg, attack_range},
+  "unstuck": {...} | null}`. Episode metrics include `unstuck_triggers`.
 - `jev` is `null` only before the first decision; afterwards the last valid
   decision is repeated (stale-decision semantics) — check `request_id` changes
   to detect new decisions. `probabilities` covers the full 11-question bank

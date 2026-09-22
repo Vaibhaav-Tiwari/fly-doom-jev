@@ -140,8 +140,14 @@ class TypedDNDecoder:
             out[channel] = (pos - neg) / (pos + neg + 1e-9)
         return out
 
-    def decode(self, full_rates: np.ndarray) -> dict:
-        """full_rates: per-neuron rates for ALL neurons (engine.rate)."""
+    def decode(self, full_rates: np.ndarray,
+               aim_ok: bool | None = None) -> dict:
+        """full_rates: per-neuron rates for ALL neurons (engine.rate).
+
+        aim_ok: the WORKING aim gate — true enemy geometry from the game
+        (ViZDoom labels: enemy visible + inside the aim cone + within range),
+        computed by the loop via motor.reflexes.aim_in_reticle. When None,
+        falls back to the legacy neural turn-imbalance gate (tests)."""
         rates = self._evoked(full_rates)
         ch = self.channels(rates)
         imb = self.imbalances(rates)
@@ -165,7 +171,8 @@ class TypedDNDecoder:
         # Combo decoding: ViZDoom buttons are simultaneous, so turn/forward may
         # co-fire with attack (recorded as motor.combo; `selected` stays the
         # primary action). Engineering decoding rule, not biology.
-        aimed = abs(turn) <= self.attack_aim_gate
+        aimed = bool(aim_ok) if aim_ok is not None \
+            else abs(turn) <= self.attack_aim_gate
         if not aimed:
             scores["attack"] = 0.0  # gated out: re-aim first (raw value stays
                                     # in channels.attack for telemetry)
@@ -239,8 +246,10 @@ class BankDecoder:
                                  for a, b in self.banks.items()},
                 "evidence_class": "engineering_hypothesis (arbitrary bank split)"}
 
-    def decode(self, full_rates: np.ndarray) -> dict:
-        """full_rates: per-neuron rates for ALL neurons (engine.rate)."""
+    def decode(self, full_rates: np.ndarray,
+               aim_ok: bool | None = None) -> dict:
+        """full_rates: per-neuron rates for ALL neurons (engine.rate).
+        aim_ok accepted for interface parity (unused by the bank decoder)."""
         if self.baseline is not None:
             full_rates = np.maximum(np.asarray(full_rates, dtype=np.float64)
                                     - self.baseline, 0.0)
