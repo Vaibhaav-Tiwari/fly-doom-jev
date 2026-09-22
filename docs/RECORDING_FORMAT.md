@@ -197,8 +197,12 @@ Notes for consumers:
   reference), NOT measured biology.
 - `motor.neural_scores` / `motor.jev_weights` (2.2+; both `null` when
   `jev.action_weighting` is off): the decoder's raw scores BEFORE Jev
-  weighting, and the per-action multiplier Jev applied (attack<-ATTACK,
-  forward<-max(EXPLORE, MI.forward), backward<-RETREAT, turns<-max(REPOSITION,
+  weighting, and the per-action multiplier Jev applied (attack<-ATTACK —
+  EXCEPT on `aim_ok` steps, where the reflex-speed rule (owner-approved
+  2026-09-22) sets the attack weight to 1.0 x the INTENT posture bias so a
+  clear shot never waits on the ~1.5 s strategy cadence; measured post-change
+  lag ~2 controller steps (~0.2 s) — forward<-max(EXPLORE,
+  MI.forward), backward<-RETREAT, turns<-max(REPOSITION,
   MI.turn_*); 1.0 when no decision). `motor.scores` is the final weighted
   score the selection came from. Chosen architecture, not biology.
 - `state.schema_version` 1.2 adds the Jev-facing strategy view (additive):
@@ -257,7 +261,7 @@ Notes for consumers:
   `vnc_sensory`, `vnc_intrinsic`, `vnc_motor`, `other`). `sampled` is a fixed
   subset (default 32/population) for heatmaps — not full activity.
 - `activity` is the neuron-level data for the 3D brain view (added in 2.1):
-  - `top`: the `telemetry.top_k` (default 256) most active neurons this step as
+  - `top`: the `telemetry.top_k` (default 1000) most active neurons this step as
     `[neuron_index, rate_hz]` pairs, sorted by rate descending, zero-rate
     neurons excluded (so it can be shorter than top_k), rates rounded to 0.1 Hz.
   - `motor_rates`: rate in Hz (rounded to 0.1) for EVERY motor-population

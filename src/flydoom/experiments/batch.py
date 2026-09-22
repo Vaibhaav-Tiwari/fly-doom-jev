@@ -126,7 +126,8 @@ def run_arm_episode(cfg: dict, scen_cfg: dict, env, engine, vision_kind,
             if weighting:
                 decoded = apply_action_weighting(
                     decoded, jev_action_weights(list(decoded["scores"]), decision,
-                                                intent_biases=intent_biases))
+                                                intent_biases=intent_biases,
+                                                aim_ok=aim))
             combo = decoded.get("combo") or [decoded["selected"]]
             if unstuck is not None:
                 forced = unstuck.update(

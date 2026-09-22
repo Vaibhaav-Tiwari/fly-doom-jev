@@ -142,8 +142,9 @@ scenario_profiles:            # per-scenario control overrides, deep-merged over
 
 telemetry:
   population_sample: 32       # neurons sampled per population for summaries
-  top_k: 256                  # most-active neurons recorded per controller step
-                              # (activity.top in each step record)
+  top_k: 1000                 # most-active neurons recorded per controller step
+                              # (activity.top in each step record + /state;
+                              # frontend renders top-1000 dimmed; ~12 KB JSON)
 
 plasticity:                     # reward-modulated dopamine plasticity (CHOSEN
   enabled: true                 # DYNAMICS, unvalidated — not biology; doomfly

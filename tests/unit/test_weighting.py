@@ -58,7 +58,7 @@ def test_intent_bias_amplifies_posture():
     assert w["backward"] == 0.4 * 1.6          # RETREAT x retreat bias
     assert w["forward"] == 0.4 * 0.5           # forward suppressed in retreat
     assert w["turn_left"] == 0.2 * 1.2
-    assert w["attack"] == 0.5                  # not in the retreat posture
+    assert w["attack"] == 0.5 * 0.3            # retreat suppresses attack too
 
 
 def test_intent_bias_config_override():
@@ -67,3 +67,19 @@ def test_intent_bias_config_override():
     w = jev_action_weights(ACTIONS, d,
                            intent_biases={"attack_now": {"attack": 3.0}})
     assert w["attack"] == 1.5
+
+
+def test_reflex_speed_attack_when_aim_ok():
+    d = _decision({"ATTACK": 0.05})  # stale/low ATTACK probability
+    w = jev_action_weights(ACTIONS, d, aim_ok=True)
+    assert w["attack"] == 1.0   # clear shot must not wait on Jev
+    w2 = jev_action_weights(ACTIONS, d, aim_ok=False)
+    assert w2["attack"] == 0.05  # unchanged when not aimed
+
+
+def test_reflex_attack_intent_still_modulates():
+    d = _decision({"ATTACK": 0.05})
+    d.meta["choices"] = {"INTENT": "attack_now"}
+    assert jev_action_weights(ACTIONS, d, aim_ok=True)["attack"] == 1.8
+    d.meta["choices"] = {"INTENT": "retreat"}
+    assert jev_action_weights(ACTIONS, d, aim_ok=True)["attack"] == 0.3
