@@ -245,6 +245,11 @@ class LiveLoop(threading.Thread):
                 window_s=float(unstuck_cfg.get("window_s", 2.5)),
                 epsilon=float(unstuck_cfg.get("epsilon", 6.0)),
                 turn_s=float(unstuck_cfg.get("turn_s", 1.0)))
+        assist = None
+        assist_hold = int(motor_cfg.get("aim_assist_hold_steps", 2))
+        if assist_hold > 0:
+            from flydoom.motor.reflexes import AimAssistReflex
+            assist = AimAssistReflex(hold_steps=assist_hold)
         run_id = (time.strftime("live-%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6])
         writer = RecordingWriter(rec_cfg.get("directory", "outputs/recordings"),
                                  run_id=run_id,
@@ -392,6 +397,11 @@ class LiveLoop(threading.Thread):
                 if forced:
                     combo = [forced]
                     decoded["selected"] = forced
+            assisted = False
+            if assist is not None and not forced:
+                assisted = assist.update(bool(aim), combo)
+                if assisted:
+                    combo = ["attack", *combo] if combo else ["attack"]
             result = env.step(combo)
             obs = result.observation
             total_reward += result.reward
@@ -449,6 +459,7 @@ class LiveLoop(threading.Thread):
                           "combo": combo,
                           "aim_ok": aim,
                           "attack_spiked": bool(decoded.get("attack_spiked", False)),
+                          "attack_assisted": bool(assisted),
                           "turn_offset": round(float(getattr(
                               decoder, "turn_offset", 0.0)), 4),
                           "scores": {k: round(float(v), 4)
@@ -506,6 +517,7 @@ class LiveLoop(threading.Thread):
                           "confidence": round(float(decoded["confidence"]), 4),
                           "aim_ok": aim,
                           "attack_spiked": bool(decoded.get("attack_spiked", False)),
+                          "attack_assisted": bool(assisted),
                           "unstuck": bool(forced),
                           "neural_scores": decoded.get("neural_scores"),
                           "jev_weights": decoded.get("jev_weights"),
