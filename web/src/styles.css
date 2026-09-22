@@ -244,9 +244,9 @@ main { width: 100%; padding: 10px 14px 14px; }
 }
 .activity-legend span { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 .activity-legend i { width: 6px; height: 6px; border-radius: 50%; }
-.activity-legend .firing-key i { background: #d98220; box-shadow: 0 0 4px #d98220; }
-.activity-legend .visual-key i { background: #d9a94f; box-shadow: 0 0 4px #d9a94f; }
-.activity-legend .decoder-key i { background: #e45768; box-shadow: 0 0 4px #e45768; }
+.activity-legend .firing-key i { background: #e18a22; box-shadow: 0 0 5px #e18a22; }
+.activity-legend .visual-key i { background: #e0ad4f; box-shadow: 0 0 5px #e0ad4f; }
+.activity-legend .decoder-key i { background: #e85b6d; box-shadow: 0 0 5px #e85b6d; }
 .activity-legend .resting-key i { background: var(--blue); }
 
 .signal-strip {
