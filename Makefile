@@ -4,7 +4,7 @@
 UV ?= uv
 PY := .venv/bin/python
 
-.PHONY: setup run-demo replay live test verify-data download-data benchmark
+.PHONY: setup run-demo replay live test verify-data download-data benchmark batch
 
 setup:
 	$(UV) venv --python 3.14 .venv || $(UV) venv .venv
@@ -36,3 +36,9 @@ download-data:
 
 benchmark:
 	$(PY) scripts/benchmark.py --config configs/demo.yaml
+
+# Batch experiments: seeds x scenarios x controllers -> outputs/batch/<ts>/
+# (episodes.jsonl + summary.csv/json). Jev API calls only in 'jev' arms.
+# Usage: make batch ARGS="--seeds 42 43 --steps 400 [--learn] [--parallel 2]"
+batch:
+	$(PY) -m flydoom.experiments.batch --config configs/demo.yaml $(ARGS)

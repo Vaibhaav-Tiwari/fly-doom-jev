@@ -142,3 +142,55 @@ def test_shaped_reward_from_observation_deltas():
     assert shaped_reward(cfg, a, b, done=False) == pytest.approx(1.0 - 0.6)
     assert shaped_reward(cfg, a, obs(0, 0.0), done=True) == pytest.approx(-3.0)
     assert shaped_reward(cfg, a, obs(0, 100.0), done=False) == 0.0
+
+
+def test_checkpoint_roundtrip_and_provenance(tmp_path):
+    from flydoom.neural.plasticity import plasticity_config_sha
+    cfg_sha = plasticity_config_sha({"plasticity": CFG})
+    p = make()
+    rate = np.full(7, 20.0, dtype=np.float32)
+    p.note_reward(1.0)
+    p.update(rate, 0.1)
+    assert p.stats()["changed_edges"] == 2
+    meta = p.save_checkpoint(tmp_path / "checkpoint.npz", cfg_sha)
+    assert meta["graph_sha"] == p.graph_sha and meta["config_sha"] == cfg_sha
+    assert p.checkpoint_id == meta["checkpoint_id"]
+
+    fresh = make()
+    assert np.allclose(fresh.w, fresh.w0)
+    loaded = fresh.load_checkpoint(tmp_path / "checkpoint.npz", cfg_sha)
+    assert loaded is not None
+    assert np.allclose(fresh.w, p.w)
+    assert fresh.checkpoint_id == p.checkpoint_id
+
+    # provenance mismatch -> start fresh, weights untouched
+    other = make()
+    assert other.load_checkpoint(tmp_path / "checkpoint.npz",
+                                 "0" * 16) is None
+    assert np.allclose(other.w, other.w0)
+    # missing file -> fresh
+    assert make().load_checkpoint(tmp_path / "nope.npz", cfg_sha) is None
+
+
+def test_shaped_reward_behavior_terms():
+    from flydoom.doom.base import Observation
+    cfg = {"plasticity": {}}
+
+    def obs():
+        return Observation(frame=np.zeros((2, 2, 3), np.uint8), health=100.0,
+                           ammo=10.0, kills=0, position_x=0, position_y=0,
+                           angle_deg=0, enemy_visible=False, enemy_distance=1,
+                           enemy_angle=0, episode_tic=0)
+    terms: dict[str, int] = {}
+    r = shaped_reward(cfg, obs(), obs(), False,
+                      ctx={"attack": True, "aim_ok": True}, terms=terms)
+    assert r == pytest.approx(0.3) and terms["reward_attack_aimed"] == 1
+    r = shaped_reward(cfg, obs(), obs(), False,
+                      ctx={"attack": True, "aim_ok": False}, terms=terms)
+    assert r == pytest.approx(-0.1) and terms["penalty_attack_blind"] == 1
+    r = shaped_reward(cfg, obs(), obs(), False,
+                      ctx={"stuck": True, "escaped": True}, terms=terms)
+    assert r == pytest.approx(-0.05 + 0.2)
+    assert terms["penalty_stuck"] == 1 and terms["reward_escape"] == 1
+    # no ctx -> no behavior terms (legacy callers)
+    assert shaped_reward(cfg, obs(), obs(), False) == 0.0

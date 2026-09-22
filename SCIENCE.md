@@ -64,15 +64,21 @@
   readout are **joystick mappings**, not biology.
 - **Threat level** is a hand-crafted heuristic of enemy proximity/centering.
 - **Reward-modulated plasticity** (`plasticity`, doomfly v6 reference): shaped
-  reward events (kill +1, health delta ×0.02, death −1 — the raw ViZDoom
-  reward in these scenarios is living-reward only, and damage dealt is not
-  directly observable, so the kill event is its proxy) pulse the connectome's
-  dopaminergic neurons (PAM types for positive, PPL1 for negative) and gate a
-  three-factor Hebbian update on KC→MBON synapses with eligibility traces.
-  Weights are clamped to [0, 3×w0] and persist across episodes within a run
-  (reset on POST /new). This is a **chosen learning rule**, not a validated
-  model of mushroom-body plasticity: PAM/PPL1 identities are real MaleCNS
-  annotations, but the rule, gains, and taus are engineering picks.
+  reward events pulse the connectome's dopaminergic neurons (PAM types for
+  positive, PPL1 for negative) and gate a three-factor Hebbian update on
+  KC→MBON synapses with eligibility traces. Event terms: kill +1, health delta
+  ×0.02, death −1 (the raw ViZDoom reward in these scenarios is living-reward
+  only, and damage dealt is not directly observable, so the kill event is its
+  proxy). **Behavior-shaping terms** (owner-directed, chosen): +0.3 attack
+  with an enemy truly in the reticle, −0.1 blind firing, −0.05 per wall-stuck
+  window (parked while commanding movement), +0.2 escape confirmed by movement
+  after an unstuck-reflex trigger. Weights are clamped to [0, 3×w0] and
+  persist across episodes, POST /new, and server restarts (checkpoint
+  `outputs/learning/checkpoint.npz`, provenance-checked by graph + config
+  hash; `POST /new {"reset_learning": true}` restarts the fly fresh). This is
+  a **chosen learning rule and chosen shaping**, not a validated model of
+  mushroom-body plasticity: PAM/PPL1 identities are real MaleCNS annotations,
+  but the rule, gains, taus, and reward terms are engineering picks.
 - **Aim gate (true geometry)**: attack fires only when an enemy is visible,
   inside a 14° cone of screen center, and within range — computed from
   ViZDoom's label-derived enemy fields (`motor/reflexes.aim_in_reticle`), not
@@ -80,7 +86,8 @@
   still decides (raw channel rates stay in telemetry).
 - **Unstuck reflex** (E1M1 profile): commanding movement with <6 map units of
   XY displacement over 2.5 s of game time forces a 1 s turn (alternating
-  direction). Engineering reflex against wall-parking, not biology.
+  direction). Engineering reflex against wall-parking, not biology. It also
+  reports `stuck_now`/escape events used by the reward shaping above.
 - **Stale-decision semantics**: Jev runs at ~3 Hz on a background thread; the
   last valid decision stays active until a new one arrives. The game/neural
   loop never blocks on Jev.
@@ -98,7 +105,8 @@ counts. See `docs/RECORDING_FORMAT.md`.
 - Temporal association between Jev decisions, neural activity, and actions is
   **not causation**; no interventional analysis is performed.
 - Scoring kills in DOOM does not demonstrate biological equivalence, fly
-  "understanding" of DOOM, or learning. No plasticity exists in the system.
+  "understanding" of DOOM, or learning; the plasticity rule is a chosen
+  three-factor heuristic, not validated biology (see CHOSEN DYNAMICS).
 - The causal pathway constraint (Jev → MaleCNS modulation → dynamics → typed
   DN readouts → action) is enforced in code: Jev never selects the final
   action directly and cannot inject into motor/readout neurons.

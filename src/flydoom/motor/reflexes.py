@@ -8,7 +8,9 @@
 - `UnstuckReflex`: wall-stuck detection. If the agent commands movement but
   its XY position barely changes over `window_s` of game time, force a turn
   for `turn_s` (alternating direction each trigger). Classic unstuck reflex;
-  chosen engineering dynamics, not biology (config + SCIENCE.md).
+  chosen engineering dynamics, not biology (config + SCIENCE.md). Also
+  reports `stuck_now` (parked) and one-shot escape events (pop_escape) for
+  the reward-shaping terms.
 """
 
 from __future__ import annotations
@@ -40,19 +42,41 @@ class UnstuckReflex:
         self._forced_until = -1.0
         self._direction = "turn_right"  # flips on every trigger
         self.triggers = 0
+        self.stuck_now = False          # parked: moving commanded, no displacement
+        self.escapes = 0                # trigger followed by real movement
+        self._escape_origin: tuple | None = None  # (deadline_t, x, y)
+        self._escape_event = False      # one-shot, consumed by pop_escape()
 
     def reset(self) -> None:
         self._hist.clear()
         self._forced_until = -1.0
+        self.stuck_now = False
+        self._escape_origin = None
+        self._escape_event = False
+
+    def pop_escape(self) -> bool:
+        """True once when an unstuck trigger is confirmed by actual movement."""
+        ev, self._escape_event = self._escape_event, False
+        return ev
 
     def update(self, x: float, y: float, trying_to_move: bool,
                t_game_s: float) -> str | None:
         """Forced turn action while active, else None."""
+        if self._escape_origin is not None:
+            deadline, ox, oy = self._escape_origin
+            if math.hypot(x - ox, y - oy) >= self.epsilon:
+                self.escapes += 1
+                self._escape_event = True
+                self._escape_origin = None
+            elif t_game_s > deadline:
+                self._escape_origin = None  # never got out; no credit
         if t_game_s < self._forced_until:
+            self.stuck_now = False
             return self._direction
         self._hist.append((t_game_s, float(x), float(y)))
         while self._hist and self._hist[0][0] < t_game_s - self.window_s:
             self._hist.popleft()
+        self.stuck_now = False
         if not trying_to_move or len(self._hist) < 2:
             return None
         t0, x0, y0 = self._hist[0]
@@ -60,7 +84,10 @@ class UnstuckReflex:
             return None
         if math.hypot(x - x0, y - y0) >= self.epsilon:
             return None
+        self.stuck_now = True
         self._forced_until = t_game_s + self.turn_s
+        self._escape_origin = (t_game_s + max(2.0 * self.turn_s, self.window_s),
+                               float(x), float(y))
         self._hist.clear()  # fresh window: the forced turn (and whatever it
                             # achieved) must not count as continued stuckness
         self._direction = ("turn_left" if self._direction == "turn_right"

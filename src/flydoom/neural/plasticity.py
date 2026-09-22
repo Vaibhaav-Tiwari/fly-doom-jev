@@ -19,8 +19,10 @@ see PROVENANCE.md). The model:
    guard. The C LIF kernel reads the same weight array by pointer, so updates
    take effect in the live sim immediately.
 3. PERSISTENCE. Weights persist across engine.reset() (episode boundaries)
-   within a run — that is the point. reset() restores w0; the live server
-   calls it on POST /new (fresh game requested) but NOT on natural death.
+   within a run — that is the point, one continuously-learning fly. The live
+   server additionally checkpoints them to disk (outputs/learning/
+   checkpoint.npz, graph+config provenance-checked) and reloads on startup;
+   POST /new keeps them by default, {reset_learning:true} starts fresh.
 
 Cost: one vectorized numpy update per controller step over the KC->MBON edge
 subset (tens of thousands of edges) — negligible next to the LIF step.
@@ -104,6 +106,9 @@ class DopaminePlasticity:
         self._pulse_left = 0
         self._pulse_idx: np.ndarray | None = None
         self._pulse_sign = 0.0
+        self.graph_sha = hashlib.sha256(
+            self.w0.astype(np.float32).tobytes()).hexdigest()[:16]
+        self.checkpoint_id: str | None = None  # lineage of the loaded weights
         log.info("plasticity: %d KC->MBON edges (%d KC, %d MBON), DANs: %d PAM "
                  "+ %d PPL1", len(self.edges), len(kc), len(mbon),
                  len(self.pam), len(self.ppl1))
@@ -178,6 +183,62 @@ class DopaminePlasticity:
         d = (self.w - self.w0).astype(np.float32).tobytes()
         return hashlib.sha256(d).hexdigest()[:16]
 
+    # --------------------------------------------------------- checkpointing
+    def save_checkpoint(self, path, cfg_sha: str) -> dict:
+        """Persist learned KC->MBON efficacies + provenance to an .npz.
+
+        One continuously-learning fly: the live server saves this on episode
+        end and periodically, and reloads it on startup when the provenance
+        (graph hash + plasticity-config hash) matches.
+        """
+        import json as _json
+        import time as _time
+        meta = {"format": 1, "graph_sha": self.graph_sha,
+                "config_sha": cfg_sha, "saved_at": _time.time(),
+                "checkpoint_id": self.delta_sha(),
+                "stats": self.stats()}
+        path.parent.mkdir(parents=True, exist_ok=True)
+        np.savez(path, w=self.w.astype(np.float32),
+                 meta=_json.dumps(meta, sort_keys=True))
+        self.checkpoint_id = meta["checkpoint_id"]
+        log.info("plasticity checkpoint saved: %s (id %s, %s)",
+                 path, self.checkpoint_id, meta["stats"])
+        return meta
+
+    def load_checkpoint(self, path, cfg_sha: str) -> dict | None:
+        """Load a checkpoint iff provenance matches; else None (start fresh)."""
+        import json as _json
+        from pathlib import Path
+        path = Path(path)
+        if not path.exists():
+            log.info("plasticity: no checkpoint at %s — starting fresh", path)
+            return None
+        try:
+            z = np.load(path, allow_pickle=False)
+            meta = _json.loads(str(z["meta"]))
+        except Exception as exc:
+            log.warning("plasticity: checkpoint %s unreadable (%s) — starting "
+                        "fresh", path, exc)
+            return None
+        if meta.get("graph_sha") != self.graph_sha \
+                or meta.get("config_sha") != cfg_sha:
+            log.warning("plasticity: checkpoint provenance mismatch "
+                        "(graph %s vs %s, config %s vs %s) — starting fresh",
+                        meta.get("graph_sha"), self.graph_sha,
+                        meta.get("config_sha"), cfg_sha)
+            return None
+        w = np.asarray(z["w"], dtype=np.float64)
+        if w.shape != self.w.shape:
+            log.warning("plasticity: checkpoint edge count mismatch — fresh")
+            return None
+        self.w[:] = np.clip(w, 0.0, self.hi)
+        self.weight[self.edges] = self.w
+        self.checkpoint_id = meta.get("checkpoint_id")
+        log.info("plasticity: loaded checkpoint %s (id %s, saved %s)",
+                 path, self.checkpoint_id,
+                 meta.get("saved_at"))
+        return meta
+
     def describe(self) -> dict:
         return {"enabled": True, "model": "reward-gated Hebbian on KC->MBON "
                 "edges with eligibility traces; reward events pulse PAM (+) / "
@@ -193,8 +254,10 @@ class DopaminePlasticity:
                 "negative_gain": self.negative_gain,
                 "max_weight_multiplier": self.max_mult,
                 "clamp": "0 <= w <= max_weight_multiplier * w0 (runaway guard)",
-                "persistence": "weights persist across episodes within a run; "
-                               "reset on POST /new (fresh game)",
+                "persistence": "weights persist across episodes and POST /new "
+                               "(one continuously-learning fly); checkpointed "
+                               "to disk with graph+config provenance; reset "
+                               "only via POST /new {reset_learning:true}",
                 "evidence_class": "CHOSEN DYNAMICS, unvalidated — not measured "
                                   "biology (doomfly v6 reference)"}
 
@@ -239,13 +302,36 @@ def maybe_make_plasticity(cfg: dict, connectome, engine):
         return None
 
 
-def shaped_reward(cfg: dict, prev_obs, obs, done: bool) -> float:
-    """Shaped reward from observation deltas (config-documented).
+def plasticity_config_sha(cfg: dict) -> str:
+    """Provenance hash over the plasticity-relevant config (checkpoint check)."""
+    import json as _json
+    p = cfg.get("plasticity", {})
+    keys = ("learning_rate", "eligibility_tau_s", "dopamine_tau_s",
+            "ref_rate_hz", "baseline_hz", "negative_gain", "dan_pulse_mv",
+            "dan_pulse_steps", "max_weight_multiplier")
+    blob = _json.dumps({k: p.get(k) for k in keys}, sort_keys=True)
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
+def shaped_reward(cfg: dict, prev_obs, obs, done: bool,
+                  ctx: dict | None = None,
+                  terms: dict | None = None) -> float:
+    """Shaped reward from observation deltas + behavior terms (config-documented).
 
     The raw ViZDoom reward is living-reward only in these scenarios, so
     learning-relevant events are computed here: kills, health delta (damage
     taken / pickups), death. Damage dealt is not directly observable with the
     current game variables; the kill event is its proxy (documented).
+
+    Behavior shaping (CHOSEN, owner-directed — documented in SCIENCE.md),
+    passed via ctx from the control loop:
+      ctx["attack"]      attack fired this step
+      ctx["aim_ok"]      enemy truly in the reticle (true geometry gate)
+      ctx["stuck"]       parked: commanding movement, no displacement
+      ctx["escaped"]     one-shot: moved after an unstuck-reflex trigger
+    Terms push toward 'stuck -> turn' and 'enemy in reticle -> shoot' and away
+    from degenerate play (wall-parking, blind firing). `terms`, when given,
+    accumulates per-term event counts for honest stats.
     """
     p = cfg.get("plasticity", {})
     r = 0.0
@@ -253,4 +339,20 @@ def shaped_reward(cfg: dict, prev_obs, obs, done: bool) -> float:
     r += float(p.get("reward_health_delta", 0.02)) * (obs.health - prev_obs.health)
     if done and obs.health <= 0:
         r += float(p.get("reward_death", -1.0))
+    if ctx:
+        def _term(name: str, key: str, default: float) -> None:
+            nonlocal r
+            v = float(p.get(key, default))
+            r += v
+            if terms is not None:
+                terms[key] = terms.get(key, 0) + 1
+        if ctx.get("attack"):
+            if ctx.get("aim_ok"):
+                _term("aimed attack", "reward_attack_aimed", 0.3)
+            else:
+                _term("blind attack", "penalty_attack_blind", -0.1)
+        if ctx.get("stuck"):
+            _term("wall-stuck", "penalty_stuck", -0.05)
+        if ctx.get("escaped"):
+            _term("escape", "reward_escape", 0.2)
     return r

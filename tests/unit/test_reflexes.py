@@ -110,3 +110,36 @@ def test_scenario_profile_merge():
     assert merged["unstuck"]["enabled"] is True
     assert apply_scenario_profile(cfg, "fly_arena") is cfg  # no profile: unchanged
     assert cfg["motor"]["forward_min"] == 0.5               # base not mutated
+
+
+def test_unstuck_escape_confirmation():
+    u = UnstuckReflex(window_s=2.0, epsilon=5.0, turn_s=1.0)
+    t = 0.0
+    for i in range(30):  # park -> trigger
+        t = i * 0.1
+        u.update(100.0, 100.0, True, t)
+    assert u.triggers == 1
+    assert u.pop_escape() is False  # no movement yet
+    # fly now actually moves beyond epsilon within the escape deadline
+    escaped = False
+    for i in range(30, 45):
+        t = i * 0.1
+        u.update(100.0 + (i - 29) * 2.0, 100.0, True, t)
+        escaped = escaped or u.pop_escape()
+    assert escaped and u.escapes == 1
+    assert u.pop_escape() is False  # one-shot
+
+
+def test_unstuck_escape_deadline_expires():
+    u = UnstuckReflex(window_s=2.0, epsilon=5.0, turn_s=1.0)
+    for i in range(30):
+        u.update(100.0, 100.0, True, i * 0.1)
+    assert u.triggers == 1
+    # idle (not commanding movement) past the escape deadline: no credit,
+    # and no re-trigger to refresh the escape window
+    for i in range(30, 90):
+        u.update(100.0, 100.0, False, i * 0.1)
+    assert u.escapes == 0
+    # movement AFTER the deadline earns no credit
+    u.update(120.0, 100.0, False, 9.0)
+    assert u.pop_escape() is False and u.escapes == 0

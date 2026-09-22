@@ -164,6 +164,15 @@ plasticity:                     # reward-modulated dopamine plasticity (CHOSEN
   reward_health_delta: 0.02     # reward only, so events come from observation
   reward_death: -1.0            # deltas (damage dealt not directly observable;
                                 # kill is its proxy)
+  reward_attack_aimed: 0.3      # BEHAVIOR SHAPING (chosen, owner-directed):
+  penalty_attack_blind: -0.1    # + attack with enemy truly in the reticle;
+  penalty_stuck: -0.05          # - blind firing; - wall-stuck time (parked
+  reward_escape: 0.2            # while commanding movement); + escape after an
+                                # unstuck-reflex trigger confirmed by movement
+  checkpoint: outputs/learning/checkpoint.npz   # one continuously-learning fly:
+  checkpoint_interval_s: 60     # weights persist across POST /new + restarts
+                                # (graph+config provenance-checked); POST /new
+                                # {reset_learning:true} restarts the fly fresh
 
 recording:
   directory: outputs/recordings
