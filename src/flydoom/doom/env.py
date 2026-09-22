@@ -24,6 +24,7 @@ class VizDoomEnv:
         env_cfg = cfg["environment"]
         self._label_pos: dict[int, tuple] = {}   # object_id -> last position
         self._label_still: dict[int, int] = {}   # object_id -> stationary steps
+        self._visible_ids: set[int] = set()      # ids in the latest observation
         self.corpse_steps = int(env_cfg.get("corpse_steps", 8))
         self.scenario = env_cfg.get("scenario", "defend_the_center")
         if self.scenario not in SCENARIOS:
@@ -98,8 +99,9 @@ class VizDoomEnv:
         self.game.set_seed(int(seed))
 
     def live_enemy_count(self) -> int:
-        """Enemies currently tracked (labels minus corpse-filtered objects)."""
-        return int(sum(1 for v in self._label_still.values() if v < self.corpse_steps))
+        """Enemies currently visible and tracked as alive (corpse-filtered)."""
+        return int(sum(1 for oid in self._visible_ids
+                       if self._label_still.get(oid, 0) < self.corpse_steps))
 
     def close(self) -> None:
         self.game.close()
@@ -116,9 +118,11 @@ class VizDoomEnv:
         px, py, ang = vals["POSITION_X"], vals["POSITION_Y"], vals["ANGLE"]
         enemy_visible, dist, rel_ang = False, 1.0, 0.0
         best = None
+        self._visible_ids = set()
         for l in s.labels:
             if l.object_name in ("DoomPlayer",) or l.object_position_x is None:
                 continue
+            self._visible_ids.add(l.object_id)
             # corpses stay in the labels buffer with their living name; an
             # object that has not moved for `corpse_steps` observations is
             # treated as dead and dropped from enemy tracking

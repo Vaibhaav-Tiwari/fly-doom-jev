@@ -42,7 +42,7 @@ from flydoom.config import load_config
 from flydoom.doom import make_env
 from flydoom.experiments.runner import (
     _activity_record, _behavior_metrics, _fallback_warnings, _motor_population,
-    build_neural, build_vision, ensure_connectome_assets)
+    build_neural, build_vision, ensure_connectome_assets, resolve_neural_steps)
 from flydoom.integration import JevBridge
 from flydoom.jev import JevScheduler, make_jev_client
 from flydoom.motor import make_decoder
@@ -115,8 +115,7 @@ class LiveLoop(threading.Thread):
                            gain=float(cfg["bridge"].get("gain", 30.0)),
                            choice_mappings=cfg["bridge"].get("choice_mappings"))
         decoder = make_decoder(connectome, cfg)
-        steps_neural = int(cfg["neural"].get("steps_per_controller_step", 32))
-        dt_neural = float(cfg["neural"].get("timestep_ms", 1.0))
+        steps_neural, dt_neural, ms_per_tic = resolve_neural_steps(cfg)
         pop_sample = int(cfg["telemetry"].get("population_sample", 32))
         top_k = int(cfg["telemetry"].get("top_k", 256))
         motor_idx, motor_ids = _motor_population(connectome)
@@ -135,6 +134,7 @@ class LiveLoop(threading.Thread):
                     vision_kind=vision_kind, vision=vision, scheduler=scheduler,
                     jev_client=jev_client, bridge=bridge, decoder=decoder,
                     steps_neural=steps_neural, dt_neural=dt_neural,
+                    ms_per_tic=ms_per_tic,
                     pop_sample=pop_sample, top_k=top_k, motor_idx=motor_idx,
                     motor_ids=motor_ids, assets_ref=assets_ref, rec_cfg=rec_cfg,
                     step_period_s=step_period_s, connectome=connectome)
@@ -146,8 +146,8 @@ class LiveLoop(threading.Thread):
     # -------------------------------------------------------------- episode
     def _run_episode(self, episode_i, seed, env, engine, vision_kind, vision,
                      scheduler, jev_client, bridge, decoder, steps_neural,
-                     dt_neural, pop_sample, top_k, motor_idx, motor_ids,
-                     assets_ref, rec_cfg, step_period_s, connectome) -> None:
+                     dt_neural, ms_per_tic, pop_sample, top_k, motor_idx,
+                     motor_ids, assets_ref, rec_cfg, step_period_s, connectome) -> None:
         import uuid
         run_id = (time.strftime("live-%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6])
         writer = RecordingWriter(rec_cfg.get("directory", "outputs/recordings"),
@@ -168,6 +168,12 @@ class LiveLoop(threading.Thread):
                             "skill": getattr(env, "skill", None),
                             "actions": env.available_actions},
             "vision": {"pathway": vision_kind},
+            "neural": {"timestep_ms": dt_neural,
+                       "steps_per_controller_step": steps_neural,
+                       "ms_per_game_tic": round(ms_per_tic, 3),
+                       "brain_ms_per_game_s": round(ms_per_tic * 35.0, 1),
+                       "note": "brain time per game tic; the game runs slower "
+                               "in wall time when this is raised"},
             "jev": {"mode": self.cfg["jev"].get("mode", "mock"),
                     "client": jev_client.name,
                     "cadence_hz": float(self.cfg["jev"].get("cadence_hz", 3.0))},
@@ -186,7 +192,10 @@ class LiveLoop(threading.Thread):
             env.set_seed(seed)
         obs = env.reset()
         engine.reset()
-        scheduler.prime(encode_state(obs, env.available_actions))
+        # no blocking prime(): the scheduler's background loop produces the
+        # first decision within ~1s; until then the stale-decision semantics
+        # keep the previous decision active (recorded honestly per step)
+        scheduler.update_state(encode_state(obs, env.available_actions))
         self.episodes += 1
         log.info("live episode %d started: run_id=%s seed=%d",
                  episode_i, run_id, seed)
