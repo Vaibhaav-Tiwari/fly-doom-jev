@@ -94,6 +94,9 @@ def _activity_record(engine, motor_idx: np.ndarray, top_k: int) -> dict:
 def build_neural(cfg: dict):
     """Returns (connectome, engine). Full native engine by default."""
     connectome = load_connectome(cfg)
+    if isinstance(connectome, FullConnectome):
+        from flydoom.neural.plasticity import prepare_connectome
+        connectome = prepare_connectome(cfg, connectome)  # before engine bind
     neural = cfg["neural"]
     if isinstance(connectome, FullConnectome):
         from flydoom.neural.engine_native import NativeLIFEngine
@@ -174,6 +177,9 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
     from flydoom.integration.weighting import (apply_action_weighting,
                                                jev_action_weights)
     weighting = bool(cfg["jev"].get("action_weighting", False))
+    from flydoom.neural.plasticity import (maybe_make_plasticity,
+                                           shaped_reward)
+    plasticity = maybe_make_plasticity(cfg, connectome, engine)
 
     neural_cfg = cfg["neural"]
     steps_neural, dt_neural, ms_per_tic = resolve_neural_steps(cfg)
@@ -214,6 +220,8 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
                     "cadence_hz": float(cfg["jev"].get("cadence_hz", 3.0))},
             "bridge": bridge.describe(),
             "motor": decoder.describe(),
+            "plasticity": (plasticity.describe() if plasticity
+                           else {"enabled": False}),
             "motor_population": {"indices": [int(i) for i in motor_idx],
                                  "body_ids": motor_ids},
             "connectome_assets": assets_ref,
@@ -234,6 +242,7 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
         t_start = time.time()
         realtime = bool(cfg["environment"].get("realtime", False))
         step_period_s = env.frame_skip / 35.0  # ViZDoom ticrate
+        prev_obs = obs
         step_i = 0
         for step_i in range(max_steps):
             t_step = time.perf_counter()
@@ -257,6 +266,11 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
                 combined[int(i)] = combined.get(int(i), 0.0) + float(c)
             for i, c in zip(b_idx, b_cur):
                 combined[int(i)] = combined.get(int(i), 0.0) + float(c)
+            if plasticity:
+                pulse = plasticity.pending_injection()  # DAN reward pulse
+                if pulse is not None:
+                    for i, c in zip(*pulse):
+                        combined[int(i)] = combined.get(int(i), 0.0) + float(c)
             engine.inject_input(
                 np.fromiter(combined.keys(), dtype=np.int64),
                 np.fromiter(combined.values(), dtype=np.float32))
@@ -270,6 +284,11 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
             result = env.step(combo)
             obs = result.observation
             total_reward += result.reward
+            if plasticity:
+                plasticity.note_reward(shaped_reward(cfg, prev_obs, obs,
+                                                     result.done))
+                plasticity.update(engine.rate, step_period_s)
+            prev_obs = obs
             action_counts[decoded["selected"]] = action_counts.get(decoded["selected"], 0) + 1
             if len(combo) > 1:
                 action_counts["combo:" + "+".join(combo)] = \
@@ -320,6 +339,7 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
                     "activity": _activity_record(engine, motor_idx, top_k),
                     "motor": motor_rec,
                     "reward": result.reward,
+                    "learning": plasticity.stats() if plasticity else None,
                     "controller_latency_ms": round(latency_ms, 3),
                 })
             if realtime:
@@ -353,6 +373,9 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
             if controller_latencies else {},
             "neural_total_spikes": engine.total_spikes,
             "behavior": _behavior_metrics(beh),
+            "learning": ({**plasticity.stats(),
+                          "delta_sha256_16": plasticity.delta_sha()}
+                         if plasticity else None),
         }
         if writer:
             writer.write_episode_end({"episode": episode})

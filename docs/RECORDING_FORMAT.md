@@ -63,6 +63,15 @@ always the header; then one `step` record per controller step; then an
             "contributing": {"attack": {"indices": [207651, 208123],
                                         "body_ids": [1008064715, 1008127787]}},
             "gains": {...}, "thresholds": {...}},
+  "plasticity": {"enabled": true,
+                 "model": "reward-gated Hebbian on KC->MBON edges ...",
+                 "plastic_edges": 61210, "kc_neurons": 4064, "mbon_neurons": 97,
+                 "pam_neurons": 316, "ppl1_neurons": 16,
+                 "learning_rate": 0.05, "eligibility_tau_s": 1.0,
+                 "dopamine_tau_s": 1.5, "max_weight_multiplier": 3.0,
+                 "clamp": "0 <= w <= max_weight_multiplier * w0 (runaway guard)",
+                 "persistence": "weights persist across episodes within a run; reset on POST /new",
+                 "evidence_class": "CHOSEN DYNAMICS, unvalidated ..."},
   "motor_population": {"indices": [173, 482, "..."],
                        "body_ids": [1000000173, "..."]},
   "connectome_assets": {"url": "/api/connectome",
@@ -142,6 +151,8 @@ Neuron indexing contract (the frontend depends on this):
     "top": [[173, 51.3], [1486, 51.3], [1257, 49.9]],
     "motor_rates": [0.0, 12.4, "..."]
   },
+  "retina": {"indices": [12, 340, "..."], "drive": [4.2, 3.8, "..."],
+             "note": "photoreceptor input drive (mV), not spikes"},
   "motor": {
     "scores": {"turn_left": 0.0, "turn_right": 0.9, "attack": 0.1, "noop": 0.0},
     "selected": "turn_right",
@@ -154,12 +165,37 @@ Neuron indexing contract (the frontend depends on this):
                       "attack": {"positive": 1.1, "negative": 0.0}}
   },
   "reward": -0.01,
+  "learning": {"plastic_edges": 61210, "changed_edges": 13482,
+               "mean_efficacy_rel": 0.971, "max_efficacy_rel": 1.0,
+               "dopamine": -1.11, "reward_events": 126,
+               "total_shaped_reward": -3.0},
   "controller_latency_ms": 68.4
 }
 ```
 
 Notes for consumers:
 
+- `retina` (2.2+, full graph only; `null` for the mosaic pathway): the
+  photoreceptor INPUT DRIVE for the top_k most-driven retinal neurons this
+  step — `{"indices": [neuron_index...], "drive": [mV...], "note": "..."}`.
+  Photoreceptors are graded-potential proxies in this model (they do not
+  spike); this is luminance-derived input drive, NOT firing rate, and is
+  labeled as such in the `note` field.
+- `learning` (2.2+; `null` when plasticity is disabled): per-step plasticity
+  stats so the UI can show the brain changing. `changed_edges` = KC->MBON
+  edges whose efficacy differs from initial (|Δ| > 1e-6),
+  `mean_efficacy_rel` = mean(w)/mean(w0) over plastic edges (1.0 = unchanged),
+  `dopamine` = current signed dopamine trace, `reward_events` /
+  `total_shaped_reward` accumulate the shaped reward (kill / health delta /
+  death — the raw ViZDoom reward is living-reward only). Weights are clamped
+  to [0, max_weight_multiplier*w0]; CHOSEN DYNAMICS, unvalidated (doomfly v6
+  reference), NOT measured biology.
+- `motor.neural_scores` / `motor.jev_weights` (2.2+; both `null` when
+  `jev.action_weighting` is off): the decoder's raw scores BEFORE Jev
+  weighting, and the per-action multiplier Jev applied (attack<-ATTACK,
+  forward<-max(EXPLORE, MI.forward), backward<-RETREAT, turns<-max(REPOSITION,
+  MI.turn_*); 1.0 when no decision). `motor.scores` is the final weighted
+  score the selection came from. Chosen architecture, not biology.
 - `jev` is `null` only before the first decision; afterwards the last valid
   decision is repeated (stale-decision semantics) — check `request_id` changes
   to detect new decisions. `probabilities` covers the full 10-question bank
@@ -221,7 +257,12 @@ Notes for consumers:
     "behavior": {"frac_steps_turn_saturated": 0.14,
                  "turn_reduces_aim_error_frac": 0.71,
                  "attack_when_close_frac": 0.57,
-                 "attack_channel_mean_hz": 23.7}
+                 "attack_channel_mean_hz": 23.7},
+    "learning": {"plastic_edges": 61210, "changed_edges": 13482,
+                 "mean_efficacy_rel": 0.971, "max_efficacy_rel": 1.0,
+                 "dopamine": 0.0, "reward_events": 126,
+                 "total_shaped_reward": -3.0,
+                 "delta_sha256_16": "6552bbe7a7dd29da"}
   }
 }
 ```
@@ -233,6 +274,14 @@ simulated neural time. `reset_reason` (live sessions only) is
 turn-readout saturation fraction, fraction of turn steps that shrank the aim
 error |enemy_angle| (convention-free), and how often the agent attacked when
 an enemy was visible and close (< 0.4).
+
+`learning` (2.2+; `null` when disabled) is the END-OF-EPISODE plasticity
+summary: the same fields as the per-step `learning` record plus
+`delta_sha256_16` — the first 16 hex chars of the sha256 over the float32
+weight-delta vector of all plastic (KC->MBON) edges. Two episodes with the
+same sha learned the identical weight changes; compare `changed_edges` /
+`mean_efficacy_rel` across episodes to see cumulative learning (weights
+persist across episodes within a live-server run unless POST /new reset them).
 
 ## featured.json (multi-episode runs)
 
@@ -299,7 +348,11 @@ reference it).
 
 ## Versioning
 
-- `2.1` (current): adds header `motor_population`, `connectome_assets`,
+- `2.2` (current): adds header `plasticity`, per-step `retina`,
+  `motor.neural_scores` / `motor.jev_weights`, and per-step + episode-end
+  `learning` (reward-modulated KC->MBON plasticity; chosen dynamics,
+  unvalidated). Additive over 2.1 — 2.1 consumers still work.
+- `2.1`: adds header `motor_population`, `connectome_assets`,
   `telemetry`, `bridge.slices`, `motor.contributing`, and per-step `activity`
   (`top` + `motor_rates`). Additive over 2.0 — 2.0 consumers still work.
 - `2.0`: RGB JPEG frames, full connectome, typed DN decoder fields,

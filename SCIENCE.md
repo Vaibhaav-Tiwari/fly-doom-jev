@@ -63,6 +63,16 @@
   literature support; the channel gains, thresholds, and the DNpe017 attack
   readout are **joystick mappings**, not biology.
 - **Threat level** is a hand-crafted heuristic of enemy proximity/centering.
+- **Reward-modulated plasticity** (`plasticity`, doomfly v6 reference): shaped
+  reward events (kill +1, health delta ×0.02, death −1 — the raw ViZDoom
+  reward in these scenarios is living-reward only, and damage dealt is not
+  directly observable, so the kill event is its proxy) pulse the connectome's
+  dopaminergic neurons (PAM types for positive, PPL1 for negative) and gate a
+  three-factor Hebbian update on KC→MBON synapses with eligibility traces.
+  Weights are clamped to [0, 3×w0] and persist across episodes within a run
+  (reset on POST /new). This is a **chosen learning rule**, not a validated
+  model of mushroom-body plasticity: PAM/PPL1 identities are real MaleCNS
+  annotations, but the rule, gains, and taus are engineering picks.
 - **Stale-decision semantics**: Jev runs at ~3 Hz on a background thread; the
   last valid decision stays active until a new one arrives. The game/neural
   loop never blocks on Jev.

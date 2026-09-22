@@ -22,7 +22,7 @@ from pathlib import Path
 
 import numpy as np
 
-RECORDING_FORMAT_VERSION = "2.1"
+RECORDING_FORMAT_VERSION = "2.2"
 
 
 class RecordingWriter:
