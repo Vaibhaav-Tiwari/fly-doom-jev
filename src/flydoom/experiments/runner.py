@@ -318,7 +318,8 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
             if weighting:
                 decoded = apply_action_weighting(
                     decoded, jev_action_weights(list(decoded["scores"]), decision,
-                                                intent_biases=intent_biases))
+                                                intent_biases=intent_biases,
+                                                aim_ok=aim))
             combo = decoded.get("combo") or [decoded["selected"]]
             forced = None
             if unstuck is not None:

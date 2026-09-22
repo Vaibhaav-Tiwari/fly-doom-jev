@@ -18,6 +18,17 @@ Strategic INTENT (strategy layer, ~1.5 s cadence): the winning INTENT choice
 multiplies the class weight by a posture bias > 1 (engage biases
 forward+attack, retreat biases backward/turn, etc.). Scores are normalized
 downstream, so only relative weights matter.
+
+REFLEX-SPEED ATTACK (owner-approved 2026-09-22): when the loop reports
+`aim_ok` (enemy truly in the reticle, true geometry), the attack weight is
+1.0 x the INTENT posture bias — it does NOT wait on the ATTACK probability,
+which is up to ~1.5 s stale at the strategy cadence (measured: 22 of 104
+aim windows with a hot neural attack channel never fired, suppressed by the
+stale ATTACK weight). Jev still governs strategy: the INTENT bias can
+suppress (retreat x0.5) or boost (attack_now x1.8) the shot, but the fast
+ATTACK question adds no latency to a clear shot. When aim_ok is false the
+geometry gate zeroes the attack score anyway (weight irrelevant); the ATTACK
+probability remains in telemetry as advisory evidence.
 """
 
 from __future__ import annotations
@@ -28,7 +39,8 @@ from flydoom.jev.client import JevDecision
 INTENT_BIASES: dict[str, dict[str, float]] = {
     "engage": {"forward": 1.3, "attack": 1.2},
     "retreat": {"backward": 1.6, "turn_left": 1.2, "turn_right": 1.2,
-                "forward": 0.5},
+                "forward": 0.5, "attack": 0.3},  # strategy can still veto a
+                                                 # reflex-speed clear shot
     "circle": {"turn_left": 1.4, "turn_right": 1.4, "forward": 0.7},
     "advance": {"forward": 1.5},
     "attack_now": {"attack": 1.8},
@@ -37,10 +49,13 @@ INTENT_BIASES: dict[str, dict[str, float]] = {
 
 def jev_action_weights(actions: list[str], decision: JevDecision | None,
                        floor: float = 0.0,
-                       intent_biases: dict | None = None) -> dict[str, float]:
+                       intent_biases: dict | None = None,
+                       aim_ok: bool | None = None) -> dict[str, float]:
     """Per-action Jev weight (base in [floor, 1], then x the INTENT posture
     bias); 1.0 for noop / before the first decision (weighting is a no-op
-    until a real decision exists)."""
+    until a real decision exists). aim_ok=True enables the reflex-speed
+    attack: base 1.0 for attack regardless of the (stale) ATTACK probability,
+    with only the INTENT posture bias still applying."""
     if decision is None:
         return {a: 1.0 for a in actions}
     p = decision.probabilities
@@ -51,7 +66,10 @@ def jev_action_weights(actions: list[str], decision: JevDecision | None,
 
     def w(action: str) -> float:
         if action == "attack":
-            base = max(float(p.get("ATTACK", 0.0)), floor)
+            if aim_ok:
+                base = 1.0  # reflex-speed: clear shot must not wait on Jev
+            else:
+                base = max(float(p.get("ATTACK", 0.0)), floor)
         elif action == "forward":
             base = max(float(p.get("EXPLORE", 0.0)),
                        float(mi.get("forward", 0.0)), floor)

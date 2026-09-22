@@ -115,9 +115,13 @@ def build_textmap(orig: bytes) -> bytes:
     out = [_thing_block(0, 1, -480.0, 288.0, 0)]  # player start (as stock)
     for i, (typ, x, y, ang, _ambush) in enumerate(MONSTERS, start=1):
         out.append(_thing_block(i, typ, float(x), float(y), ang))
-    # insert monster things right after the player-start thing block
+    # REPLACE the stock thing section, don't append to it: keeping the
+    # original tagged (id = 1) player start spawned a second DoomPlayer
+    # entity — a stationary green marine sprite that is not an enemy but
+    # pollutes the visual field (owner bug report 2026-09-22)
     player_end = text.index("vertex // 0")
-    return (text[:player_end] + "\n".join(out) + "\n"
+    namespace_end = text.index("\n", text.index("namespace"))
+    return (text[:namespace_end + 1] + "\n".join(out) + "\n"
             + text[player_end:]).encode()
 
 

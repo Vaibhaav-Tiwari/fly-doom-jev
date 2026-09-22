@@ -136,9 +136,10 @@ class LiveLoop(threading.Thread):
         weighting = bool(cfg["jev"].get("action_weighting", False))
         intent_biases = cfg["jev"].get("intent_biases")
 
-        def weights_of(scores, decision):
+        def weights_of(scores, decision, aim_ok=None):
             return jev_action_weights(scores, decision,
-                                      intent_biases=intent_biases)
+                                      intent_biases=intent_biases,
+                                      aim_ok=aim_ok)
         from flydoom.neural.plasticity import (maybe_make_plasticity,
                                                plasticity_config_sha,
                                                shaped_reward)
@@ -369,7 +370,8 @@ class LiveLoop(threading.Thread):
             decoded = decoder.decode(engine.rate, aim_ok=aim)
             if weighting:
                 decoded = apply_weighting(
-                    decoded, weights_of(list(decoded["scores"]), decision))
+                    decoded, weights_of(list(decoded["scores"]), decision,
+                                        aim_ok=aim))
             combo = decoded.get("combo") or [decoded["selected"]]
             forced = None
             if unstuck is not None:
