@@ -21,6 +21,8 @@ export interface LiveSnapshot {
   generated_at_ms?: number;
   frame?: string;
   game?: {health?: number; kills?: number; ammo?: number; enemies?: number | null; alive_s?: number; episode?: number};
+  position?: {x?: number; y?: number};
+  goal?: {x?: number; y?: number; dist?: number; bearing_deg?: number} | null;
   motor?: {selected?: string; combo?: string[]; scores?: ScalarMap; channels?: ScalarMap; readout_rates?: Record<string, {positive?: number; negative?: number}>};
   activity?: NeuronActivity;
   retinal_input?: RetinalInput;

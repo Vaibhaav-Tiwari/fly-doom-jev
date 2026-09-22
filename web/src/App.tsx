@@ -199,7 +199,11 @@ export default function App() {
       <section className="hero">
         <div className="game-side">
           <div className="game-head"><span>DOOM · {mode === 'live' ? (liveSnapshot?.scenario ?? scenario).replaceAll('_', ' ').toUpperCase() : 'RECORDED'}</span><div><i/> {mode === 'live' ? liveNotice : 'SYNCED RECORDING'}</div></div>
-          <DoomViewport recording={recording} step={step} mode={mode}/>
+          <DoomViewport recording={recording} step={step} mode={mode}
+            showMinimap={mode === 'live' && (liveSnapshot?.scenario ?? scenario) === 'e1m1'}
+            minimapX={state.position_x as number | undefined}
+            minimapY={state.position_y as number | undefined}
+            goalDist={(state.goal as {dist?: number} | null | undefined)?.dist}/>
           <div className="game-stats">
             <div><Heart/><span>HEALTH</span><b>{Number(state.health ?? 0).toFixed(0)}</b></div>
             <div><Zap/><span>AMMO</span><b>{Number(state.ammo ?? 0).toFixed(0)}</b></div>
