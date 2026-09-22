@@ -54,6 +54,11 @@ class TypedDNDecoder:
         # readout starves all re-aiming (measured: attack 99% of steps, agent
         # never turns). Engineering decoding rule, not biology.
         self.attack_aim_gate = float(attack_aim_gate)
+        # tonic-baseline compensation: after tonic calibration the decoder
+        # reads EVOKED activity above the calibrated resting baseline, so
+        # thresholds keep their meaning (measured: tonic baseline alone would
+        # cross the attack threshold)
+        self.baseline: np.ndarray | None = None
         # resolve readout indices once
         self._sets: dict[str, dict[str, list[int]]] = {}
         for channel, spec in self.readouts_cfg.items():
@@ -66,6 +71,15 @@ class TypedDNDecoder:
                     self._sets[channel][sign].extend(int(i) for i in idx)
         self.missing = {c: s for c, s in self._sets.items()
                         if not s["positive"] and not s["negative"]}
+
+    def set_baseline(self, rates: np.ndarray) -> None:
+        self.baseline = np.asarray(rates, dtype=np.float64)
+
+    def _evoked(self, full_rates: np.ndarray) -> np.ndarray:
+        if self.baseline is None:
+            return full_rates
+        return np.maximum(np.asarray(full_rates, dtype=np.float64)
+                          - self.baseline, 0.0)
 
     # which readout sets feed each action's decoder score
     _ACTION_SOURCES = {"turn_left": [("turn", "negative")],
@@ -96,6 +110,7 @@ class TypedDNDecoder:
                 "contributing": self.contributing(),
                 "gains": self.gains, "thresholds": self.mins,
                 "attack_aim_gate": self.attack_aim_gate,
+                "baseline_compensated": self.baseline is not None,
                 "evidence_class": "typed DN identities biological; channel gains "
                                   "and attack readout are engineering mappings"}
 
@@ -123,8 +138,9 @@ class TypedDNDecoder:
 
     def decode(self, full_rates: np.ndarray) -> dict:
         """full_rates: per-neuron rates for ALL neurons (engine.rate)."""
-        ch = self.channels(full_rates)
-        imb = self.imbalances(full_rates)
+        rates = self._evoked(full_rates)
+        ch = self.channels(rates)
+        imb = self.imbalances(rates)
         scores = {a: 0.0 for a in self.actions}
         selected, confidence = "noop", 1.0
         if "attack" in scores:
@@ -173,8 +189,8 @@ class TypedDNDecoder:
         return {"scores": probs, "selected": selected, "confidence": confidence,
                 "combo": combo,
                 "channels": ch, "imbalances": {k: round(v, 4) for k, v in imb.items()},
-                "readout_rates": {c: {"positive": self._mean(ss["positive"], full_rates),
-                                      "negative": self._mean(ss["negative"], full_rates)}
+                "readout_rates": {c: {"positive": self._mean(ss["positive"], rates),
+                                      "negative": self._mean(ss["negative"], rates)}
                                   for c, ss in self._sets.items()}}
 
     def _min_for(self, action: str) -> float:
@@ -206,6 +222,10 @@ class BankDecoder:
         banks = np.array_split(motor_idx, n_banks)
         self.banks = {a: b for a, b in zip(self.actions, banks) if a != "noop"}
         self.motor_indices = motor_idx
+        self.baseline: np.ndarray | None = None
+
+    def set_baseline(self, rates: np.ndarray) -> None:
+        self.baseline = np.asarray(rates, dtype=np.float64)
 
     def describe(self) -> dict:
         return {"decoder": self.decoder_name,
@@ -217,6 +237,9 @@ class BankDecoder:
 
     def decode(self, full_rates: np.ndarray) -> dict:
         """full_rates: per-neuron rates for ALL neurons (engine.rate)."""
+        if self.baseline is not None:
+            full_rates = np.maximum(np.asarray(full_rates, dtype=np.float64)
+                                    - self.baseline, 0.0)
         motor_rates = full_rates[self.motor_indices]
         baseline = float(motor_rates.mean()) if len(motor_rates) else 0.0
         raw = {}

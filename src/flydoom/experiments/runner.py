@@ -158,6 +158,8 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
 
     env = make_env(cfg)
     connectome, engine = build_neural(cfg)
+    from flydoom.neural.tonic import maybe_calibrate_tonic
+    tonic_meta = maybe_calibrate_tonic(cfg, connectome, engine)
     vision_kind, vision = build_vision(cfg, connectome)
     jev_client = make_jev_client(cfg)
     scheduler = JevScheduler(jev_client, cadence_hz=float(cfg["jev"].get("cadence_hz", 3.0)))
@@ -165,6 +167,10 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
                        gain=float(cfg["bridge"].get("gain", 30.0)),
                        choice_mappings=cfg["bridge"].get("choice_mappings"))
     decoder = make_decoder(connectome, cfg)
+    if tonic_meta.get("enabled"):
+        # decode evoked activity above the calibrated tonic baseline so
+        # thresholds keep their meaning (see tonic_meta in the header)
+        decoder.set_baseline(engine.rate.copy())
 
     neural_cfg = cfg["neural"]
     steps_neural, dt_neural, ms_per_tic = resolve_neural_steps(cfg)
@@ -198,6 +204,7 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
                        "steps_per_controller_step": steps_neural,
                        "ms_per_game_tic": round(ms_per_tic, 3),
                        "brain_ms_per_game_s": round(ms_per_tic * 35.0, 1),
+                       "tonic": tonic_meta,
                        "note": "brain time per game tic; the game runs slower "
                                "in wall time when this is raised"},
             "jev": {"mode": cfg["jev"].get("mode", "mock"), "client": jev_client.name,
