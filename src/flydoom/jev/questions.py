@@ -27,10 +27,15 @@ QUESTION_BANK: dict[str, str] = {
 SYSTEMONE_QUESTIONS: dict[str, dict] = {
     "ATTACK": {
         "type": "noul",
-        "instructions": "Is attacking the enemy right now the appropriate action?",
+        "instructions": "Is attacking the enemy right now the appropriate action? "
+                        "The state fields are normalized: enemy_distance 0=point-blank, "
+                        "1=very far; enemy_angle 0=dead-center in view.",
         "criteria": {
-            "true": "An enemy is visible, close enough to hit (enemy_distance small), and ammo > 0",
-            "false": "No enemy visible, enemy too far away, or ammo depleted",
+            "true": "enemy_visible is true AND enemy_distance < 0.4 (in weapon range) "
+                    "AND |enemy_angle| < 0.3 (roughly aimed) AND ammo > 0",
+            "false": "enemy_visible is false, OR enemy_distance >= 0.4 (too far), "
+                     "OR the enemy is far off to the side (|enemy_angle| >= 0.3), "
+                     "OR ammo is 0",
         },
     },
     "RETREAT": {
