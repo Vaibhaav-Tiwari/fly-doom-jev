@@ -116,7 +116,11 @@ motor:
   forward_min: 0.5            # high: forward charge dominated (129 fwd steps in the
                               # 03:00 featured run) and melee convergence kills; the
                               # fly fights from standoff instead
-  attack_threshold: 5.0       # Hz on the attack readout channel
+  attack_threshold: 5.0       # LEGACY rate fallback (spikes=None, tests) — the
+                              # live trigger is SPIKE-LEVEL: any spike in the
+                              # DNg02_a readout during the controller step fires
+                              # attack that step (doomfly-style hair trigger),
+                              # geometry-gated by aim_ok so no shots hit walls
   attack_aim_cone_deg: 14.0   # WORKING aim gate: attack fires ONLY when an
   attack_range: 0.45          # enemy is visible, within this cone of screen
                               # center, and within this normalized range —
