@@ -151,15 +151,19 @@ export default function BrainView({recording, step}: {recording: Recording; step
     const center = new THREE.Vector3(), size = new THREE.Vector3();
     box.getCenter(center); box.getSize(size);
     const scale = 6 / Math.max(size.x, size.y, size.z, 1);
+    const orbitCenter = new THREE.Vector3(0, 0, 0);
+    const orbitSphere = new THREE.Sphere(orbitCenter, 0);
     const positions = new Float32Array(neurons.length * 3);
     const dummy = new THREE.Object3D();
     const map = new Int32Array(bundle?.count ?? Math.max(...neurons.map(n => n.index), 0) + 1);
     map.fill(-1);
+    let maxRadiusSq = 0;
     neurons.forEach((n, i) => {
       const j = i * 3;
       positions[j] = (n.position[0] - center.x) * scale;
       positions[j + 1] = (n.position[1] - center.y) * scale;
       positions[j + 2] = (n.position[2] - center.z) * scale;
+      maxRadiusSq = Math.max(maxRadiusSq, positions[j] ** 2 + positions[j + 1] ** 2 + positions[j + 2] ** 2);
       dummy.position.set(positions[j], positions[j + 1], positions[j + 2]);
       dummy.updateMatrix();
       cloud.setMatrixAt(i, dummy.matrix);
@@ -168,6 +172,10 @@ export default function BrainView({recording, step}: {recording: Recording; step
     normalized.current = positions;
     indexToInstance.current = map;
     cloud.instanceMatrix.needsUpdate = true;
+    orbitSphere.radius = Math.sqrt(maxRadiusSq) + geometry.parameters.radius;
+    controls.target.copy(orbitCenter);
+    controls.minDistance = Math.max(3, orbitSphere.radius * 1.15);
+    controls.maxDistance = Math.max(22, orbitSphere.radius * 6);
 
     // A separate billboard layer makes the sparse, real firing set legible over 141k resting instances.
     const activeCapacity = Math.max(4096, (recording.header.motor_population?.indices?.length ?? 0) + 512);
@@ -220,7 +228,24 @@ export default function BrainView({recording, step}: {recording: Recording; step
     setSceneVersion(version => version + 1);
 
     let frame = 0, lastColorUpdate = 0;
-    const resize = () => {const w = el.clientWidth, h = el.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();};
+    let framed = false;
+    const resize = () => {
+      const w = el.clientWidth, h = el.clientHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      if (!framed && w > 0 && h > 0) {
+        const verticalFov = THREE.MathUtils.degToRad(camera.fov);
+        const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * camera.aspect);
+        const limitingFov = Math.min(verticalFov, horizontalFov);
+        const distance = orbitSphere.radius * 1.12 / Math.sin(limitingFov / 2);
+        camera.position.copy(orbitCenter).add(new THREE.Vector3(0, .025, 1).normalize().multiplyScalar(distance));
+        camera.lookAt(orbitCenter);
+        controls.target.copy(orbitCenter);
+        controls.update();
+        framed = true;
+      }
+    };
     const observer = new ResizeObserver(resize); observer.observe(el); resize();
     const tick = (now: number) => {
       frame = requestAnimationFrame(tick);
