@@ -3,10 +3,15 @@ seed: 42
 
 environment:
   backend: vizdoom            # vizdoom | fixture (fixture = deterministic test env, clearly labeled)
-  scenario: fly_arena         # CUSTOM arena derived from defend_the_line (MIT);
-                              # weak monster variants + respawn (documented: stock
-                              # swarm scenarios are unsurvivable >30s even for a
-                              # perfect-aim oracle — see docs/BENCHMARKS.md)
+  scenario: fly_arena         # fly_arena (default; custom, see below) | e1m1
+                              # (FreeDoom E1M1, bundled w/ ViZDoom, BSD-3) |
+                              # basic | defend_the_center | defend_the_line |
+                              # deadly_corridor. Live server: POST /new
+                              # {"scenario": "e1m1"} switches per episode.
+                              # fly_arena: CUSTOM arena derived from
+                              # defend_the_line (MIT); weak monster variants +
+                              # respawn (stock swarm scenarios unsurvivable
+                              # >30s even for a perfect-aim oracle)
   skill: 1                    # doom_skill 1 (halved damage); scenario default is 3
   frame_skip: 4               # game tics per controller step (35 tps / 4 ~= 8.75 steps/s)
   screen_resolution: RES_320X240
@@ -55,6 +60,11 @@ jev:
   mode: live                  # live (System One API, needs JEV_API_KEY) | mock
   cadence_hz: 3.0             # decisions/sec; game/neural loop never blocks on Jev
   # stale decision semantics: last valid decision stays active until a new one arrives
+  action_weighting: true      # Jev probabilities weight/veto the decoder's action
+                              # scores per class (attack<-ATTACK, forward<-EXPLORE/
+                              # MI.forward, backward<-RETREAT, turns<-REPOSITION/
+                              # MI.turns). Chosen architecture, not biology; raw
+                              # neural scores are still recorded per step.
 
 bridge:
   gain: 10.0
@@ -76,6 +86,16 @@ bridge:
 motor:
   decoder: typed_dn           # typed_dn (full graph) | population_bank (fallback)
   actions: [forward, backward, turn_left, turn_right, attack, noop]
+  # attack readout retargeted 2026-09-22: DNpe017 (the original BCI-style pick)
+  # NEVER spiked during encounters (measured: 0.0 Hz with a centered close
+  # enemy; its top inputs are VNC interneurons that don't push it over
+  # threshold). DNg02_a showed the best measured encounter-vs-quiet contrast
+  # among all descending neurons (2.1 vs 1.1 Hz evoked). Data-selected
+  # readout, engineering choice.
+  readouts:
+    turn: {positive: [{type: DNa02, side: R}], negative: [{type: DNa02, side: L}]}
+    forward: {positive: [{type: DNp09}, {type: DNg100}], negative: [{type: MDN}]}
+    attack: {positive: [{type: DNg02_a}], negative: []}
   turn_gain: 6.0
   forward_gain: 0.3
   attack_gain: 4.0
