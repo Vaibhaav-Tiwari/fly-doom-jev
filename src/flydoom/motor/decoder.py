@@ -59,6 +59,14 @@ class TypedDNDecoder:
         # thresholds keep their meaning (measured: tonic baseline alone would
         # cross the attack threshold)
         self.baseline: np.ndarray | None = None
+        # turn zero calibration: resting turn imbalance measured on the spawn
+        # frame during the episode-start settle window (the connectome's
+        # power-on surge + a standing rightward asymmetry otherwise make every
+        # episode open with turn_right — owner measurement 2026-09-22: first
+        # step turn channel +38.57 identical across episodes, then a
+        # persistent +0.3 -> +0.05 bias). Subtracted from the turn imbalance
+        # so a symmetric view yields ~0.
+        self.turn_offset = 0.0
         # resolve readout indices once
         self._sets: dict[str, dict[str, list[int]]] = {}
         for channel, spec in self.readouts_cfg.items():
@@ -74,6 +82,13 @@ class TypedDNDecoder:
 
     def set_baseline(self, rates: np.ndarray) -> None:
         self.baseline = np.asarray(rates, dtype=np.float64)
+
+    def set_turn_offset(self, offset: float) -> None:
+        self.turn_offset = float(offset)
+
+    def turn_imbalance(self, full_rates: np.ndarray) -> float:
+        """Raw (offset NOT applied) turn imbalance — the calibration input."""
+        return float(self.imbalances(self._evoked(full_rates)).get("turn", 0.0))
 
     def _evoked(self, full_rates: np.ndarray) -> np.ndarray:
         if self.baseline is None:
@@ -111,6 +126,7 @@ class TypedDNDecoder:
                 "gains": self.gains, "thresholds": self.mins,
                 "attack_aim_gate": self.attack_aim_gate,
                 "baseline_compensated": self.baseline is not None,
+                "turn_offset": round(self.turn_offset, 4),
                 "evidence_class": "typed DN identities biological; channel gains "
                                   "and attack readout are engineering mappings"}
 
@@ -156,7 +172,7 @@ class TypedDNDecoder:
         if "attack" in scores:
             scores["attack"] = float(max(0.0, ch.get("attack", 0.0))
                                      / max(self.mins["attack"], 1e-9))
-        turn = imb.get("turn", 0.0)
+        turn = imb.get("turn", 0.0) - self.turn_offset  # spawn-calibrated zero
         if "turn_left" in scores:
             scores["turn_left"] = float(max(0.0, -turn))
         if "turn_right" in scores:
@@ -237,6 +253,12 @@ class BankDecoder:
 
     def set_baseline(self, rates: np.ndarray) -> None:
         self.baseline = np.asarray(rates, dtype=np.float64)
+
+    def set_turn_offset(self, offset: float) -> None:
+        pass  # interface parity with TypedDNDecoder (settle calibration)
+
+    def turn_imbalance(self, full_rates: np.ndarray) -> float:
+        return 0.0  # no typed turn channel on the bank decoder
 
     def describe(self) -> dict:
         return {"decoder": self.decoder_name,

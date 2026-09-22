@@ -92,6 +92,12 @@
   XY displacement over 2.5 s of game time forces a 1 s turn (alternating
   direction). Engineering reflex against wall-parking, not biology. It also
   reports `stuck_now`/escape events used by the reward shaping above.
+- **Episode-start settle + turn zero** (engineering housekeeping): the
+  connectome's deterministic power-on surge decoded turn = +38.57 on every
+  episode's first step (owner measurement), with a residual rightward bias.
+  Each episode now opens with ~400 ms of neural time on the spawn frame with
+  motor output MUTED (game clock frozen), and the settled mean turn imbalance
+  is subtracted as the decoder's turn zero (recorded as `settle.turn_offset`).
 - **Stale-decision semantics**: Jev runs at ~3 Hz on a background thread; the
   last valid decision stays active until a new one arrives. The game/neural
   loop never blocks on Jev.

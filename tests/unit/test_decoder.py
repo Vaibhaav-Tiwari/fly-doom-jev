@@ -51,3 +51,51 @@ def test_decoder_contributing_sets(fixture_connectome):
         # body ids match the graph's own id array
         for i, bid in zip(bank, entry["body_ids"]):
             assert bid == int(fixture_connectome.body_ids[int(i)])
+
+
+def test_turn_offset_zeroes_standing_bias():
+    import numpy as np
+    from flydoom.motor.decoder import TypedDNDecoder
+    from tests.unit.test_reflexes import _FakeFull, _typed_decoder
+    dec = _typed_decoder()
+    rates = np.array([5.0, 20.0, 0.0, 0.0], dtype=np.float32)  # idx1 = DNa02 R hot
+    imb = dec.turn_imbalance(rates)
+    assert imb > 0  # rightward
+    before = dec.decode(rates)
+    assert before["scores"]["turn_right"] > 0
+    dec.set_turn_offset(imb)  # spawn-calibrated zero
+    after = dec.decode(rates)
+    assert after["scores"]["turn_right"] == 0.0
+    assert after["scores"]["turn_left"] == 0.0
+
+
+def test_settle_mutes_motor_and_calibrates():
+    import numpy as np
+    from flydoom.neural.settle import settle_episode_start
+    from tests.unit.test_reflexes import _typed_decoder
+
+    class FakeEngine:
+        def __init__(self):
+            self.rate = np.zeros(4, dtype=np.float32)
+        def inject_input(self, i, c):
+            pass
+        def step(self, n):
+            self.rate[:] = [5.0, 20.0, 0.0, 0.0]  # settles to a right-biased readout
+
+    class FakeVision:
+        def sample(self, frame, ms):
+            return np.array([0]), np.array([1.0], dtype=np.float32)
+
+    dec = _typed_decoder()
+    eng = FakeEngine()
+    meta = settle_episode_start(eng, FakeVision(), "photoreceptor",
+                                np.zeros((2, 2, 3), np.uint8), dec, None,
+                                steps_per_iter=10, dt_ms=1.0, settle_ms=40.0)
+    assert meta["enabled"] and meta["iterations"] == 4 and meta["motor_muted"]
+    assert dec.turn_offset != 0.0
+    assert meta["turn_offset"] == round(dec.turn_offset, 4)
+    # and a disabled settle is a no-op
+    meta0 = settle_episode_start(eng, FakeVision(), "photoreceptor",
+                                 np.zeros((2, 2, 3), np.uint8), dec, None,
+                                 10, 1.0, 0.0)
+    assert meta0 == {"enabled": False}

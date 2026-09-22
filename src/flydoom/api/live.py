@@ -299,6 +299,11 @@ class LiveLoop(threading.Thread):
             env.set_seed(seed)
         obs = env.reset()
         engine.reset()
+        from flydoom.neural.settle import settle_episode_start
+        settle_meta = settle_episode_start(
+            engine, vision, vision_kind, obs.frame, decoder, connectome,
+            steps_neural, dt_neural,
+            float(motor_cfg.get("settle_ms", 0.0)))
         # no blocking prime(): the scheduler's background loop produces the
         # first decision within ~1s; until then the stale-decision semantics
         # keep the previous decision active (recorded honestly per step)
@@ -439,6 +444,8 @@ class LiveLoop(threading.Thread):
                 "motor": {"selected": decoded["selected"],
                           "combo": combo,
                           "aim_ok": aim,
+                          "turn_offset": round(float(getattr(
+                              decoder, "turn_offset", 0.0)), 4),
                           "scores": {k: round(float(v), 4)
                                      for k, v in decoded["scores"].items()},
                           "neural_scores": ({k: round(float(v), 4)
@@ -533,6 +540,7 @@ class LiveLoop(threading.Thread):
             "behavior": _behavior_metrics(beh),
             "unstuck_triggers": unstuck.triggers if unstuck else 0,
             "unstuck_escapes": unstuck.escapes if unstuck else 0,
+            "settle": settle_meta,
             "learning": ({**plasticity.stats(),
                           "delta_sha256_16": plasticity.delta_sha(),
                           "checkpoint_id": plasticity.checkpoint_id,

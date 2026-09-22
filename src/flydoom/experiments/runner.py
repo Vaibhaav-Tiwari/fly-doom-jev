@@ -266,8 +266,14 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
     beh: dict[str, list] = {"turn_imb": [], "selected": [], "visible": [],
                             "dist": [], "angle": [], "attack_ch": []}
     try:
+        step_i = 0
         obs = env.reset()
         engine.reset()
+        from flydoom.neural.settle import settle_episode_start
+        settle_meta = settle_episode_start(
+            engine, vision, vision_kind, obs.frame, decoder, connectome,
+            steps_neural, dt_neural,
+            float(motor_cfg.get("settle_ms", 0.0)))
         scheduler.prime(encode_state(obs, env.available_actions))
         t_start = time.time()
         realtime = bool(cfg["environment"].get("realtime", False))
@@ -433,6 +439,7 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
             "behavior": _behavior_metrics(beh),
             "unstuck_triggers": unstuck.triggers if unstuck else 0,
             "unstuck_escapes": unstuck.escapes if unstuck else 0,
+            "settle": settle_meta,
             "learning": ({**plasticity.stats(),
                           "delta_sha256_16": plasticity.delta_sha(),
                           "checkpoint_id": plasticity.checkpoint_id,

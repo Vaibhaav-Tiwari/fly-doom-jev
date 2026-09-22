@@ -261,7 +261,7 @@ Notes for consumers:
   `vnc_sensory`, `vnc_intrinsic`, `vnc_motor`, `other`). `sampled` is a fixed
   subset (default 32/population) for heatmaps — not full activity.
 - `activity` is the neuron-level data for the 3D brain view (added in 2.1):
-  - `top`: the `telemetry.top_k` (default 1000) most active neurons this step as
+  - `top`: the `telemetry.top_k` (default 10000) most active neurons this step as
     `[neuron_index, rate_hz]` pairs, sorted by rate descending, zero-rate
     neurons excluded (so it can be shorter than top_k), rates rounded to 0.1 Hz.
   - `motor_rates`: rate in Hz (rounded to 0.1) for EVERY motor-population
