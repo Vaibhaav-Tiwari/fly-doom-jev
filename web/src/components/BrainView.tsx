@@ -5,11 +5,11 @@ import {Maximize2, MousePointer2, Sparkles} from 'lucide-react';
 import type {NeuronSample, Recording, ReplayStep} from '../lib/types';
 
 const palette: Record<string, string> = {
-  ol_sensory: '#8fb8ca', visual_projection: '#a9c9da', visual_centrifugal: '#789aaa',
-  ol_intrinsic: '#9184bc', cx_intrinsic: '#c9a568', cb_intrinsic: '#b79589',
-  cb_sensory: '#839d89', ascending_neuron: '#9994ae', descending_neuron: '#d7cfc3',
-  vnc_sensory: '#7c929b', vnc_intrinsic: '#8b828f', vnc_motor: '#c4a16d',
-  other: '#687278', recorded: '#b8bec1',
+  ol_sensory: '#2f82bd', visual_projection: '#2f82bd', visual_centrifugal: '#2f82bd',
+  ol_intrinsic: '#2f82bd', cx_intrinsic: '#2f82bd', cb_intrinsic: '#2f82bd',
+  cb_sensory: '#2f82bd', ascending_neuron: '#2f82bd', descending_neuron: '#2f82bd',
+  vnc_sensory: '#2f82bd', vnc_intrinsic: '#2f82bd', vnc_motor: '#2f82bd',
+  other: '#2f82bd', recorded: '#2f82bd',
 };
 const getId = (n: NeuronSample, i = 0) => String(n.body_id ?? n.neuron ?? i);
 const getPos = (n: NeuronSample): [number, number, number] | null =>
@@ -30,6 +30,21 @@ function annotatedPosition(id: string, index: number, group: string): [number, n
 
 type DrawNeuron = {index: number; position: [number, number, number]; group: string};
 type ActivitySummary = {count: number; peak: number};
+type RecentRates = Map<string, number[]>;
+
+function rememberRate(history: RecentRates, group: string, value: number) {
+  const samples = history.get(group) ?? [];
+  samples.push(value);
+  if (samples.length > 50) samples.shift();
+  history.set(group, samples);
+}
+
+function normalizeRecent(value: number, samples: number[] | undefined) {
+  if (value <= 0 || !samples?.length) return 0;
+  const low = Math.min(...samples), high = Math.max(...samples);
+  if (high - low < Math.max(.05, high * .08)) return .62;
+  return Math.max(0, Math.min(1, (value - low) / (high - low)));
+}
 
 export default function BrainView({recording, step}: {recording: Recording; step: ReplayStep | null}) {
   const host = useRef<HTMLDivElement>(null);
@@ -46,10 +61,18 @@ export default function BrainView({recording, step}: {recording: Recording; step
   const firingCore = useRef<THREE.PointsMaterial | null>(null);
   const visualMaterial = useRef<THREE.PointsMaterial | null>(null);
   const visualLevel = useRef(0);
+  const populationHistory = useRef<RecentRates>(new Map());
+  const neuronPeakHistory = useRef<RecentRates>(new Map());
   const [drawCount, setDrawCount] = useState(0);
   const [sceneVersion, setSceneVersion] = useState(0);
   const [activity, setActivity] = useState<ActivitySummary>({count: 0, peak: 0});
+  const [regionNormalized, setRegionNormalized] = useState(true);
   const bundle = recording.connectomeData;
+
+  useEffect(() => {
+    populationHistory.current.clear();
+    neuronPeakHistory.current.clear();
+  }, [recording.id]);
 
   const neurons = useMemo<DrawNeuron[]>(() => {
     if (bundle) {
@@ -93,10 +116,10 @@ export default function BrainView({recording, step}: {recording: Recording; step
     controls.minDistance = 3;
     controls.maxDistance = 22;
 
-    const geometry = new THREE.OctahedronGeometry(bundle?.count ? .045 : .07, 0);
+    const geometry = new THREE.OctahedronGeometry(bundle?.count ? .012 : .07, 0);
     const material = new THREE.MeshBasicMaterial({
-      color: 0xffffff, vertexColors: false, transparent: true, opacity: 1,
-      blending: THREE.NormalBlending, depthWrite: false, toneMapped: false, fog: false,
+      color: 0xffffff, vertexColors: false, transparent: true, opacity: .94,
+      blending: THREE.NormalBlending, depthWrite: true, toneMapped: false, fog: false,
     });
     const cloud = new THREE.InstancedMesh(geometry, material, neurons.length);
     cloud.instanceMatrix.setUsage(THREE.StaticDrawUsage);
@@ -120,7 +143,7 @@ export default function BrainView({recording, step}: {recording: Recording; step
     // Instanced colors default to black. Seed the resting palette immediately
     // so the connectome remains visible even before the first animation frame.
     const initialColors = cloud.instanceColor.array as Float32Array;
-    for (let i = 0; i < initialColors.length; i++) initialColors[i] = bases[i] * .35;
+    for (let i = 0; i < initialColors.length; i++) initialColors[i] = bases[i];
     cloud.instanceColor.needsUpdate = true;
 
     const box = new THREE.Box3();
@@ -150,6 +173,7 @@ export default function BrainView({recording, step}: {recording: Recording; step
     const activeCapacity = Math.max(4096, (recording.header.motor_population?.indices?.length ?? 0) + 512);
     const activeGeometry = new THREE.BufferGeometry();
     activeGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(activeCapacity * 3), 3));
+    activeGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(activeCapacity * 3), 3));
     activeGeometry.setDrawRange(0, 0);
     firingGeometry.current = activeGeometry;
     const glowCanvas = document.createElement('canvas');
@@ -163,8 +187,8 @@ export default function BrainView({recording, step}: {recording: Recording; step
     glowContext.fillStyle = glowGradient;
     glowContext.fillRect(0, 0, 64, 64);
     const glowMap = new THREE.CanvasTexture(glowCanvas);
-    const haloMaterial = new THREE.PointsMaterial({color: 0xff9f2f, map: glowMap, size: .82, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
-    const coreMaterial = new THREE.PointsMaterial({color: 0xfff8df, map: glowMap, size: .2, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
+    const haloMaterial = new THREE.PointsMaterial({color: 0xff8218, map: glowMap, size: .82, vertexColors: true, transparent: true, opacity: .95, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
+    const coreMaterial = new THREE.PointsMaterial({color: 0xffe09a, map: glowMap, size: .2, vertexColors: true, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
     firingHalo.current = haloMaterial;
     firingCore.current = coreMaterial;
     scene.add(new THREE.Points(activeGeometry, haloMaterial), new THREE.Points(activeGeometry, coreMaterial));
@@ -175,7 +199,7 @@ export default function BrainView({recording, step}: {recording: Recording; step
     actionGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(actionCapacity * 3), 3));
     actionGeom.setDrawRange(0, 0);
     actionGeometry.current = actionGeom;
-    const actionMaterial = new THREE.PointsMaterial({color: 0xff426d, map: glowMap, size: .95, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
+    const actionMaterial = new THREE.PointsMaterial({color: 0xff3150, map: glowMap, size: .95, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
     scene.add(new THREE.Points(actionGeom, actionMaterial));
 
     const visualPositions: number[] = [];
@@ -187,7 +211,7 @@ export default function BrainView({recording, step}: {recording: Recording; step
     });
     const visualGeometry = new THREE.BufferGeometry();
     visualGeometry.setAttribute('position', new THREE.Float32BufferAttribute(visualPositions, 3));
-    const visualMat = new THREE.PointsMaterial({color: 0x8edcff, map: glowMap, size: .1, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false});
+    const visualMat = new THREE.PointsMaterial({color: 0x35c7f0, map: glowMap, size: .1, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false});
     visualMaterial.current = visualMat;
     scene.add(new THREE.Points(visualGeometry, visualMat));
     // The activity effect can run before Three has finished building these
@@ -209,9 +233,10 @@ export default function BrainView({recording, step}: {recording: Recording; step
           const desired = t[i] * pulse;
           l[i] = desired > l[i] ? l[i] + (desired - l[i]) * .7 : l[i] * .965;
           const glow = Math.max(l[i], flags[i] ? 1 : 0), j = i * 3;
-          out[j] = base[j] * (.35 + glow * .22) + glow * .95;
-          out[j + 1] = base[j + 1] * (.35 + glow * .22) + glow * .58;
-          out[j + 2] = base[j + 2] * (.35 + glow * .22) + glow * .16;
+          const brightness = .88 + glow * .12;
+          out[j] = base[j] * brightness;
+          out[j + 1] = base[j + 1] * brightness;
+          out[j + 2] = base[j + 2] * brightness;
         }
         cloud.instanceColor!.needsUpdate = true;
       }
@@ -241,26 +266,41 @@ export default function BrainView({recording, step}: {recording: Recording; step
     const normalizedPeak = Math.max(1, peak);
     const populationRates = new Map(Object.entries(step?.populations ?? {}).map(([g, p]) => [g, p.mean_rate_hz ?? 0]));
     const maxPopulation = Math.max(1, ...populationRates.values());
+    populationRates.forEach((rate, group) => rememberRate(populationHistory.current, group, rate));
     neurons.forEach((n, i) => {
-      const rate = (populationRates.get(n.group) ?? 0) / maxPopulation;
-      // This is a recorded population mean, used only as a low-level regional wash.
-      t[i] = rate * (n.group === 'ol_sensory' || n.group === 'visual_projection' ? .34 : .05);
+      const rate = populationRates.get(n.group) ?? 0;
+      // Population means are recorded data. Region mode only changes display
+      // gain so low-rate deep-brain populations remain visible beside retina.
+      const gain = regionNormalized ? normalizeRecent(rate, populationHistory.current.get(n.group)) : rate / maxPopulation;
+      t[i] = rate > 0 ? gain * (regionNormalized ? .34 : .22) : 0;
     });
 
     const activeRates = new Map<number, number>();
     top.forEach(([idx, rate]) => activeRates.set(idx, Math.max(activeRates.get(idx) ?? 0, rate)));
     motorIndices.forEach((idx, i) => {const rate = motorRates[i] ?? 0; if (rate > 0) activeRates.set(idx, Math.max(activeRates.get(idx) ?? 0, rate));});
+    const currentGroupPeaks = new Map<string, number>();
+    activeRates.forEach((rate, idx) => {
+      const instance = idx < map.length ? map[idx] : -1;
+      if (instance >= 0) currentGroupPeaks.set(neurons[instance].group, Math.max(currentGroupPeaks.get(neurons[instance].group) ?? 0, rate));
+    });
+    currentGroupPeaks.forEach((rate, group) => rememberRate(neuronPeakHistory.current, group, rate));
     const activePositions = activeGeom.getAttribute('position') as THREE.BufferAttribute;
+    const activeColors = activeGeom.getAttribute('color') as THREE.BufferAttribute;
     let activeCount = 0;
     activeRates.forEach((rate, idx) => {
       const instance = idx < map.length ? map[idx] : -1;
       if (instance < 0 || activeCount >= activePositions.count) return;
-      t[instance] = Math.max(t[instance], Math.sqrt(rate / normalizedPeak));
+      const group = neurons[instance].group;
+      const groupHigh = Math.max(1, ...(neuronPeakHistory.current.get(group) ?? [1]));
+      const displayedRate = Math.sqrt(rate / (regionNormalized ? groupHigh : normalizedPeak));
+      t[instance] = Math.max(t[instance], displayedRate);
       const src = instance * 3, dst = activeCount * 3;
       activePositions.setXYZ(activeCount, positions[src], positions[src + 1], positions[src + 2]);
+      activeColors.setXYZ(activeCount, displayedRate, displayedRate, displayedRate);
       activeCount++;
     });
     activePositions.needsUpdate = true;
+    activeColors.needsUpdate = true;
     activeGeom.setDrawRange(0, activeCount);
 
     const selected = step?.motor?.selected_action ?? step?.motor?.selected ?? '';
@@ -277,9 +317,14 @@ export default function BrainView({recording, step}: {recording: Recording; step
     });
     actionPositions.needsUpdate = true;
     actionGeom.setDrawRange(0, actionCount);
-    visualLevel.current = Math.min(1, ((populationRates.get('ol_sensory') ?? 0) + (populationRates.get('visual_projection') ?? 0)) / Math.max(1, maxPopulation));
+    const visualRaw = ((populationRates.get('ol_sensory') ?? 0) + (populationRates.get('visual_projection') ?? 0)) / Math.max(1, maxPopulation);
+    const visualNormalized = Math.max(
+      normalizeRecent(populationRates.get('ol_sensory') ?? 0, populationHistory.current.get('ol_sensory')),
+      normalizeRecent(populationRates.get('visual_projection') ?? 0, populationHistory.current.get('visual_projection')),
+    );
+    visualLevel.current = Math.min(1, regionNormalized ? visualNormalized * .38 : visualRaw);
     setActivity({count: activeCount, peak});
-  }, [neurons, step, recording, bundle, sceneVersion]);
+  }, [neurons, step, recording, bundle, sceneVersion, regionNormalized]);
 
   return <div className="brain-stage">
     <div ref={host} className="brain-canvas"/>
@@ -287,6 +332,7 @@ export default function BrainView({recording, step}: {recording: Recording; step
     <div className="activity-meter" role="status" aria-label={`${activity.count} firing neurons, ${activity.peak.toFixed(1)} hertz peak`}><b>{activity.count.toLocaleString()}</b> FIRING <span>{activity.peak.toFixed(1)} Hz PEAK</span></div>
     <div className="reset-view" title="Drag to rotate · scroll to zoom"><MousePointer2/> DRAG TO ORBIT <Maximize2/></div>
     <div className="activity-legend"><span><i/> FIRING</span><span><i/> DECODER INPUT</span><span><i/> RESTING</span></div>
+    <div className="display-scale"><button onClick={() => setRegionNormalized(value => !value)}>{regionNormalized ? 'REGION NORMALIZED' : 'RAW GLOBAL SCALE'}</button><span>{regionNormalized ? 'brightness normalized per region · deep brain fires at lower rates' : 'raw global Hz brightness · retina naturally dominates'}</span></div>
     <div className="position-note">{bundle ? '● MALECNS v1.0 · RECORDED COORDINATES' : '◇ V1 HAS NO COORDINATES — DISPLAY LAYOUT IS ANNOTATED'}</div>
   </div>;
 }
