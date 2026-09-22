@@ -170,6 +170,10 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
         jev_client, cadence_hz=float(jev_cfg.get("cadence_hz", 3.0)),
         fast_questions=tuple(jev_cfg.get("fast_questions", ["ATTACK"])),
         strategy_period_s=jev_cfg.get("strategy_period_s"))
+    controller = cfg.get("controller", "jev")
+    # brain-only controller: Jev fully bypassed — scheduler stays paused,
+    # zero API calls, decisions are always None (weighting is a no-op)
+    scheduler.set_active(controller == "jev")
     bridge = JevBridge(connectome, cfg["bridge"]["mappings"],
                        gain=float(cfg["bridge"].get("gain", 30.0)),
                        choice_mappings=cfg["bridge"].get("choice_mappings"))
@@ -203,6 +207,7 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
             "run_kind": "recorded_experiment",
             "software_version": flydoom.__version__,
             "seed": seed,
+            "controller": controller,  # 'jev' (Jev+MaleCNS) | 'brain' (MaleCNS only)
             "config": cfg,
             "connectome": {"provenance": connectome.provenance,
                            "n_neurons": connectome.n_neurons,
@@ -366,6 +371,7 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
         env.close()
         episode = {
             "controller_steps": step_i + 1,
+            "controller": controller,
             "episode_tics": int(obs.episode_tic),
             "survival_s": round(obs.episode_tic / 35.0, 2),  # 35 tics/s game time
             "duration_s": round(engine.time_ms / 1000.0, 2),

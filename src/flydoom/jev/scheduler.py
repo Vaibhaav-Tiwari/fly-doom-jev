@@ -62,6 +62,13 @@ class JevScheduler:
         self.disabled_reason: str | None = None
         self.total_cost_usd = 0.0
         self.credits_remaining_usd: float | None = None
+        self._active = True  # brain-only controller pauses Jev (zero API calls)
+
+    def set_active(self, active: bool) -> None:
+        """Pause/resume decision calls. While paused the scheduler makes ZERO
+        client calls (brain-only controller mode); get_decision keeps
+        returning the last decision, callers in brain mode ignore it."""
+        self._active = bool(active)
 
     def update_state(self, state: EnvironmentState) -> None:
         with self._lock:
@@ -95,6 +102,8 @@ class JevScheduler:
         """Synchronously produce the first decision (used at episode start so the
         loop never starts with an empty decision slot). Errors are swallowed the
         same way as in the background loop; permanent failures disable Jev."""
+        if not self._active:
+            return None
         try:
             return self._record(self.client.decide(state,
                                                    memory=self._memory()))
@@ -149,7 +158,7 @@ class JevScheduler:
         while not self._stop.is_set():
             with self._lock:
                 state = self._state
-            if state is not None:
+            if state is not None and self._active:
                 questions = None  # full bank
                 if self.strategy_period_s is not None:
                     now = time.time()

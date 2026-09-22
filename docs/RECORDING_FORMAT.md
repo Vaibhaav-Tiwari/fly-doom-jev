@@ -36,6 +36,9 @@ always the header; then one `step` record per controller step; then an
   "run_kind": "recorded_experiment",   // or "live_session" (live server episodes)
   "software_version": "0.1.0",
   "seed": 42,
+  "controller": "jev",        // 'jev' (Jev+MaleCNS) | 'brain' (MaleCNS ALONE —
+                              // Jev bypassed, zero API calls; 2.2+; default
+                              // 'jev' when absent in older recordings)
   "config": { "...": "full effective configuration" },
   "connectome": {
     "provenance": {

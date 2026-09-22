@@ -93,3 +93,17 @@ def test_scheduler_episode_memory(obs):
     assert sched._memory()["recent_episodes"] == ["ep2", "ep3", "ep4"]
     sched.prime(encode_state(obs))
     assert sched._memory()["current_intent"] is not None
+
+
+def test_scheduler_paused_makes_zero_calls(obs):
+    # brain-only controller: paused scheduler = zero client calls
+    client = MockJevClient()
+    sched = JevScheduler(client, cadence_hz=100.0)
+    sched.set_active(False)
+    assert sched.prime(encode_state(obs)) is None
+    sched.start()
+    sched.update_state(encode_state(obs))
+    time.sleep(0.1)
+    sched.stop()
+    assert sched.decisions_made == 0
+    assert sched.get_decision() is None

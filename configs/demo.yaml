@@ -1,5 +1,9 @@
 # Demo configuration — full MaleCNS v1.0 connectome, real ViZDoom, live Jev.
 seed: 42
+controller: jev               # jev (Jev+MaleCNS, default) | brain (MaleCNS ALONE:
+                              # Jev bypassed, zero API calls, pure neural decoder).
+                              # Live server: POST /new {"controller": "brain"}
+                              # switches per episode; recordings are tagged.
 
 environment:
   backend: vizdoom            # vizdoom | fixture (fixture = deterministic test env, clearly labeled)
