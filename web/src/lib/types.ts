@@ -9,3 +9,16 @@ export interface RecordingHeader {kind:string;recording_format_version?:string;c
 export interface Recording {id:string;title:string;subtitle:string;path:string;header:RecordingHeader;steps:ReplayStep[];frames?:FramesMeta;duration:number;frameData?:Uint8Array;metrics:RunMetrics;staticNeurons:NeuronSample[];positionSource?:string;connectomeData?:ConnectomeData}
 export interface RunMetrics {duration:number;steps:number;kills:number;health:number;ammo:number;meanConfidence:number;meanLatency:number;reward:number;actions:Record<string,number>}
 export interface CatalogItem {id:string;title:string;subtitle:string;path:string;featured?:boolean;assetsPath?:string}
+
+export interface LiveSnapshot {
+  status: string;
+  run_id?: string;
+  sequence?: number;
+  generated_at_ms?: number;
+  frame?: string;
+  game?: {health?: number; kills?: number; ammo?: number; enemies?: number | null; alive_s?: number; episode?: number};
+  motor?: {selected?: string; combo?: string[]; scores?: ScalarMap; channels?: ScalarMap; readout_rates?: Record<string, {positive?: number; negative?: number}>};
+  activity?: NeuronActivity;
+  populations?: Record<string, number>;
+  jev?: ReplayStep['jev'] | null;
+}

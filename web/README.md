@@ -1,8 +1,8 @@
-# Fly//DOOM replay
+# Fly//DOOM live + replay
 
-A static, replay-first React + TypeScript + Three.js experience. The fly brain is the main stage: recorded population activity lights up the 3D MaleCNS view while the matching ViZDoom frame and motor action play beside it. Click an action or population to seek and isolate its neural drive.
+A React + TypeScript + Three.js experience with a live broadcast and static recorded fallback. The fly brain is the main stage: real activity lights up the 3D MaleCNS view while the matching ViZDoom frame and motor action play beside it.
 
-The browser reads static recordings directly. It never calls Jev, ViZDoom, or the simulation backend.
+Live mode talks only to the local broadcaster at `http://127.0.0.1:8420`; no API key is sent to the browser. Pressing **Play Live** requests a fresh seeded game. Every live episode is recorded by the backend and can later be served as a static replay. If the broadcaster is unavailable, the UI falls back to its bundled recordings.
 
 ## Develop
 
@@ -11,6 +11,8 @@ cd web
 npm ci
 npm run dev
 ```
+
+Development mode proxies `/live-api` to port `8420`, allowing the worker preview to run on any local Vite port. A static production build connects directly to `http://127.0.0.1:8420` (the backend permits the production preview origin on port `4173`). Set `VITE_LIVE_API` at build time to override that URL.
 
 ## Build and serve
 

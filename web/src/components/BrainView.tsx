@@ -237,7 +237,8 @@ export default function BrainView({recording, step}: {recording: Recording; step
     const top = step?.activity?.top ?? [];
     const motorIndices = recording.header.motor_population?.indices ?? [];
     const motorRates = step?.activity?.motor_rates ?? [];
-    const peak = Math.max(1, ...top.map(x => x[1]), ...motorRates);
+    const peak = Math.max(0, ...top.map(x => x[1]), ...motorRates);
+    const normalizedPeak = Math.max(1, peak);
     const populationRates = new Map(Object.entries(step?.populations ?? {}).map(([g, p]) => [g, p.mean_rate_hz ?? 0]));
     const maxPopulation = Math.max(1, ...populationRates.values());
     neurons.forEach((n, i) => {
@@ -254,7 +255,7 @@ export default function BrainView({recording, step}: {recording: Recording; step
     activeRates.forEach((rate, idx) => {
       const instance = idx < map.length ? map[idx] : -1;
       if (instance < 0 || activeCount >= activePositions.count) return;
-      t[instance] = Math.max(t[instance], Math.sqrt(rate / peak));
+      t[instance] = Math.max(t[instance], Math.sqrt(rate / normalizedPeak));
       const src = instance * 3, dst = activeCount * 3;
       activePositions.setXYZ(activeCount, positions[src], positions[src + 1], positions[src + 2]);
       activeCount++;

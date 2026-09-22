@@ -2,14 +2,14 @@ import {useEffect,useRef} from 'react';
 import {Crosshair, HeartPulse, Target, Zap} from 'lucide-react';
 import type {Recording,ReplayStep} from '../lib/types';
 function val(v:unknown,f='—'){return typeof v==='number'?Math.round(v).toString():typeof v==='string'?v:f}
-export default function DoomViewport({recording,step}:{recording:Recording;step:ReplayStep|null}){
+export default function DoomViewport({recording,step,mode='recorded'}:{recording:Recording;step:ReplayStep|null;mode?:'live'|'recorded'}){
  const canvas=useRef<HTMLCanvasElement>(null);
- useEffect(()=>{const c=canvas.current;if(!c||!step)return;const ctx=c.getContext('2d');if(!ctx)return;const meta=recording.frames, data=recording.frameData;
+ useEffect(()=>{const c=canvas.current;if(!c)return;const ctx=c.getContext('2d');if(!ctx)return;if(!step){ctx.fillStyle='#05080a';ctx.fillRect(0,0,c.width,c.height);ctx.fillStyle='#71808a';ctx.font='13px monospace';ctx.fillText(mode==='live'?'PRESS PLAY FOR A FRESH LIVE RUN':'FRAME NOT RECORDED',18,28);return}const meta=recording.frames, data=recording.frameData;
   if(step.frame){const im=new Image();im.onload=()=>{ctx.imageSmoothingEnabled=false;ctx.drawImage(im,0,0,c.width,c.height)};im.src=step.frame;return}
   const shape=meta?.shape??[];const h=shape.at(-2)??0,w=shape.at(-1)??0;const channels=shape.length>2?(shape.at(-1)===3||shape.at(-1)===4?shape.at(-1)!:1):1;const fw=channels>1?(shape.at(-2)??0):w,fh=channels>1?(shape.at(-3)??0):h;const size=fw*fh*channels;const idx=Math.min(step.frame_index??step.controller_step??0,(meta?.count??1)-1);
   if(!data||!fw||!fh||idx<0){ctx.fillStyle='#05080a';ctx.fillRect(0,0,c.width,c.height);ctx.fillStyle='#71808a';ctx.font='13px monospace';ctx.fillText('FRAME NOT RECORDED',18,28);return}
   const image=ctx.createImageData(fw,fh),off=idx*size;for(let i=0;i<fw*fh;i++){const p=i*4,src=off+i*channels;if(channels===1){const g=data[src]??0;image.data[p]=g;image.data[p+1]=g;image.data[p+2]=g}else{image.data[p]=data[src]??0;image.data[p+1]=data[src+1]??0;image.data[p+2]=data[src+2]??0}image.data[p+3]=255}const temp=document.createElement('canvas');temp.width=fw;temp.height=fh;temp.getContext('2d')?.putImageData(image,0,0);ctx.imageSmoothingEnabled=false;ctx.drawImage(temp,0,0,c.width,c.height)
- },[recording,step]);
+ },[recording,step,mode]);
  const s=step?.state??{},action=step?.motor?.selected_action??step?.motor?.selected??'—';
- return <div className="doom"><canvas ref={canvas} width={640} height={400} aria-label="Recorded ViZDoom frame"/><div className="scanlines"/><div className="viewport-label"><span className="live-dot"/>RECORDED FRAME</div><div className="crosshair">＋</div><div className="doom-hud"><div><HeartPulse/> <b>{val(s.health)}</b><small>HEALTH</small></div><div><Zap/> <b>{val(s.ammo)}</b><small>AMMO</small></div><div><Target/> <b>{val(s.kills)}</b><small>KILLS</small></div><div className="action-hud"><Crosshair/><b>{String(action).replaceAll('_',' ')}</b><small>ACTION</small></div></div></div>
+ return <div className="doom"><canvas ref={canvas} width={640} height={480} aria-label={`${mode==='live'?'Live':'Recorded'} ViZDoom frame`}/><div className="scanlines"/><div className="viewport-label"><span className="live-dot"/>{mode==='live'?'LIVE FRAME':'RECORDED FRAME'}</div><div className="crosshair">＋</div><div className="doom-hud"><div><HeartPulse/> <b>{val(s.health)}</b><small>HEALTH</small></div><div><Zap/> <b>{val(s.ammo)}</b><small>AMMO</small></div><div><Target/> <b>{val(s.kills)}</b><small>KILLS</small></div><div className="action-hud"><Crosshair/><b>{String(action).replaceAll('_',' ')}</b><small>ACTION</small></div></div></div>
 }
