@@ -1,4 +1,5 @@
 export type ScalarMap = Record<string, number>;
+export type ControllerMode = 'jev' | 'brain';
 export interface NeuronSample { neuron?: number; body_id?: number | string; rate_hz?: number; activity?: number; position?: [number,number,number]; x?:number;y?:number;z?:number; cell_type?:string; region?:string }
 export interface Population { size?: number; mean_rate_hz?: number; activity?:number; sampled?: NeuronSample[]; contributing_actions?: string[] }
 export type RetinalInput = number | number[] | {indices?:number[];values?:number[];drive?:number|number[];photoreceptor_drive?:number[];mean_drive?:number;peak_drive?:number;intensity?:number};
@@ -14,6 +15,7 @@ export interface CatalogItem {id:string;title:string;subtitle:string;path:string
 export interface LiveSnapshot {
   status: string;
   scenario?: 'fly_arena' | 'e1m1';
+  controller?: ControllerMode;
   run_id?: string;
   sequence?: number;
   generated_at_ms?: number;

@@ -1,4 +1,4 @@
-import type {LiveSnapshot, Population, ReplayStep, ScalarMap} from './types';
+import type {ControllerMode, LiveSnapshot, Population, ReplayStep, ScalarMap} from './types';
 
 const configuredBase = import.meta.env.VITE_LIVE_API as string | undefined;
 export const LIVE_API_BASE = configuredBase ?? (import.meta.env.DEV ? '/live-api' : 'http://127.0.0.1:8420');
@@ -17,10 +17,10 @@ async function liveRequest<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const getLiveHealth = () => liveRequest<{status: string; jev?: {ok?: boolean}}>(`/health`);
 export const getLiveState = () => liveRequest<LiveSnapshot>(`/state`);
-export const startFreshLiveRun = (scenario: 'fly_arena' | 'e1m1') => liveRequest<{status: string}>(`/new`, {
+export const startFreshLiveRun = (scenario: 'fly_arena' | 'e1m1', controller: ControllerMode) => liveRequest<{status: string}>(`/new`, {
   method: 'POST',
   headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({scenario}),
+  body: JSON.stringify({scenario, controller}),
 });
 
 export function liveSnapshotToStep(snapshot: LiveSnapshot): ReplayStep {
@@ -38,7 +38,7 @@ export function liveSnapshotToStep(snapshot: LiveSnapshot): ReplayStep {
     t_ms: (snapshot.game?.alive_s ?? 0) * 1000,
     controller_step: snapshot.sequence,
     frame: snapshot.frame,
-    state: {...snapshot.game, scenario: snapshot.scenario},
+    state: {...snapshot.game, scenario: snapshot.scenario, controller: snapshot.controller},
     activity: retinalInput == null ? snapshot.activity : {...snapshot.activity, retinal_input: retinalInput},
     populations,
     motor: {

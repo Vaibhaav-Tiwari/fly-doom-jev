@@ -6,6 +6,7 @@ describe('liveSnapshotToStep', () => {
     const step = liveSnapshotToStep({
       status: 'running',
       scenario: 'e1m1',
+      controller: 'brain',
       sequence: 42,
       frame: 'data:image/jpeg;base64,abc',
       game: {health: 73, ammo: 11, kills: 2, alive_s: 4.5, episode: 8},
@@ -21,6 +22,7 @@ describe('liveSnapshotToStep', () => {
     expect(step.frame).toContain('image/jpeg');
     expect(step.state?.health).toBe(73);
     expect(step.state?.scenario).toBe('e1m1');
+    expect(step.state?.controller).toBe('brain');
     expect(step.motor?.selected_action).toBe('attack');
     expect(step.motor?.confidence).toBe(.75);
     expect(step.activity?.top?.[0]).toEqual([123, 64.2]);
