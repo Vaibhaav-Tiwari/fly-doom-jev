@@ -28,6 +28,7 @@ make download-data  # fetch MaleCNS v1.0 flat connectome (~1.2 GB)   [if not pre
 make verify-data    # sha256-check raw files against the pinned manifest
 make run-demo       # record a closed-loop episode -> outputs/recordings/<id>/
 make replay         # replay dashboard + API at http://127.0.0.1:8420
+make live           # live mode: continuous ViZDoom+MaleCNS+Jev loop, HTTP polling API
 make test           # unit + integration tests
 make benchmark      # measured performance numbers -> outputs/metrics/
 ```
@@ -55,6 +56,28 @@ in realtime (~8.75 controller steps/s; measured controller latency mean ~70 ms
 | Motor decoder | Typed descending neurons: DNa02 turn L/R, DNp09/DNg100 forward, MDN backward, DNpe017 attack readout |
 | Jev | **Mock** deterministic heuristic by default; **live** mode calls the real TypeSafe System One structured-probability API (`POST /v1/systemone`, model `jev-latest`) — typed noul/score/choice questions over the 10-question bank, key stays server-side (`JEV_API_KEY`, see `.env.example`) |
 | Behavior honesty | Episodes score ~1–6 kills then die. Not a skilled controller; metrics recorded as-is |
+
+## Live mode server
+
+`make live` (with `.env` sourced) runs the real loop continuously — ViZDoom +
+full MaleCNS + real Jev API — with **no agent/LLM at runtime** (only Jev API
+credits). Simple HTTP polling, no websockets:
+
+- `GET /state` — latest snapshot: status, run_id, sequence, data-url JPEG frame
+  (640×480, ~6 fps cap), game stats, motor scores/channels/readouts, top-256 +
+  motor neuron activity, population mean rates, Jev probabilities/choices/usage
+- `POST /new` — abort the current episode, start a fresh one with a new seed
+- `GET /health` — status, uptime, episode count, Jev reachability
+
+Every episode is recorded in the standard format under
+`outputs/recordings/live-<timestamp>-<hash>/` (`run_kind: "live_session"`), so
+live sessions replay in the website unchanged. If Jev is unreachable at
+startup the server keeps running on the deterministic mock in a loudly-marked
+degraded mode (`status: "degraded_mock_jev"`, warning in the recording header);
+`/health.jev.ok` is then `false`. CORS allows the Vite dev origins
+(`localhost:4173`/`127.0.0.1:4173`). Knobs: `live.fps`, `live.frame_size`,
+`live.jpeg_quality`, `api.port` in `configs/demo.yaml`; episode length comes
+from `environment.max_episode_tics` / `max_controller_steps`.
 
 ## Recordings & replay
 

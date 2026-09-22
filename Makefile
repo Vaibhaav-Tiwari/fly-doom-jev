@@ -4,7 +4,7 @@
 UV ?= uv
 PY := .venv/bin/python
 
-.PHONY: setup run-demo replay test verify-data download-data benchmark
+.PHONY: setup run-demo replay live test verify-data download-data benchmark
 
 setup:
 	$(UV) venv --python 3.14 .venv || $(UV) venv .venv
@@ -17,6 +17,12 @@ run-demo:
 # Serve the replay API + dashboard at http://127.0.0.1:8420
 replay:
 	$(PY) -m flydoom.api.app
+
+# Live mode: continuous ViZDoom + MaleCNS + Jev loop at http://127.0.0.1:8420
+# (GET /state, POST /new, GET /health). Needs JEV_API_KEY/JEV_BASE_URL sourced
+# (set -a; source ../.env; set +a); degrades to clearly-marked mock otherwise.
+live:
+	$(PY) -m flydoom.api.live
 
 test:
 	$(PY) -m pytest tests -q
