@@ -54,7 +54,7 @@ in realtime (~8.75 controller steps/s; measured controller latency mean ~70 ms
 | ViZDoom | Real, headless, RGB 320×240, `defend_the_center` (default), `basic`, `deadly_corridor` |
 | Visual pathway | Retinotopic: 5,895 photoreceptors mapped to ommatidia columns, bilinear sRGB sampling, lamina tonic bias |
 | Motor decoder | Typed descending neurons: DNa02 turn L/R, DNp09/DNg100 forward, MDN backward, DNpe017 attack readout |
-| Jev | **Mock** deterministic heuristic by default; **live** mode calls the real TypeSafe System One structured-probability API (`POST /v1/systemone`, model `jev-latest`) — typed noul/score/choice questions over the 10-question bank, key stays server-side (`JEV_API_KEY`, see `.env.example`) |
+| Jev | **Mock** deterministic heuristic by default; **live** mode calls the real TypeSafe System One structured-probability API (`POST /v1/systemone`, model `jev-latest`) — typed noul/score/choice questions over the 11-question bank; two cadences: fast reflex questions (ATTACK) at 3 Hz + strategic INTENT (engage/retreat/circle/advance/attack_now) every ~1.5 s or on salient events, with last-3-episode memory in the state payload, key stays server-side (`JEV_API_KEY`, see `.env.example`) |
 | Behavior honesty | Episodes score ~1–6 kills then die. Not a skilled controller; metrics recorded as-is |
 
 ## Live mode server

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from flydoom.doom.base import Observation
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 DEFAULT_ACTIONS = ["turn_left", "turn_right", "attack", "noop"]
 
 
@@ -26,6 +26,12 @@ class EnvironmentState(BaseModel):
     enemy_angle: float = Field(ge=-1.0, le=1.0)     # signed offset from heading
     threat_level: float = Field(ge=0.0, le=1.0)
     available_actions: list[str]
+    # 1.2 additions — the Jev-facing strategy view (additive; the legacy
+    # normalized fields above stay for the recording contract):
+    enemy_in_view: bool = False         # alias of enemy_visible (Jev wording)
+    aim_offset_deg: float = 0.0         # enemy_angle in degrees (+ = off-center)
+    alive_s: float = 0.0                # episode_tic / 35 (game seconds)
+    recent_damage_taken: float = 0.0    # hp lost over the last ~1 s of game time
 
 
 def compute_threat(obs: Observation) -> float:
@@ -40,8 +46,8 @@ def compute_threat(obs: Observation) -> float:
     return float(round(min(1.0, max(0.0, 0.7 * proximity + 0.3 * centered)), 4))
 
 
-def encode_state(obs: Observation, available_actions: list[str] | None = None
-                 ) -> EnvironmentState:
+def encode_state(obs: Observation, available_actions: list[str] | None = None,
+                 recent_damage: float = 0.0) -> EnvironmentState:
     return EnvironmentState(
         episode_tic=obs.episode_tic,
         health=float(obs.health),
@@ -52,4 +58,8 @@ def encode_state(obs: Observation, available_actions: list[str] | None = None
         enemy_angle=float(obs.enemy_angle),
         threat_level=compute_threat(obs),
         available_actions=list(available_actions or DEFAULT_ACTIONS),
+        enemy_in_view=bool(obs.enemy_visible),
+        aim_offset_deg=round(float(obs.enemy_angle) * 90.0, 1),
+        alive_s=round(obs.episode_tic / 35.0, 2),
+        recent_damage_taken=round(max(0.0, float(recent_damage)), 1),
     )

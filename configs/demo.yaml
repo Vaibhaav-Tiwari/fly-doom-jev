@@ -58,13 +58,22 @@ vision:
 
 jev:
   mode: live                  # live (System One API, needs JEV_API_KEY) | mock
-  cadence_hz: 3.0             # decisions/sec; game/neural loop never blocks on Jev
+  cadence_hz: 3.0             # FAST ticks/sec (reflex questions); game/neural
+                              # loop never blocks on Jev
+  fast_questions: [ATTACK]    # asked every fast tick (cheap, reflex-level)
+  strategy_period_s: 1.5      # full bank incl. strategic INTENT every ~1.5s,
+                              # or immediately on salient events (enemy appears,
+                              # big damage). Jev = strategy, brain = reflexes;
+                              # the last INTENT persists between strategy calls.
   # stale decision semantics: last valid decision stays active until a new one arrives
   action_weighting: true      # Jev probabilities weight/veto the decoder's action
                               # scores per class (attack<-ATTACK, forward<-EXPLORE/
                               # MI.forward, backward<-RETREAT, turns<-REPOSITION/
                               # MI.turns). Chosen architecture, not biology; raw
                               # neural scores are still recorded per step.
+  # intent_biases:            # optional override of weighting.INTENT_BIASES —
+                              # posture multipliers per INTENT choice, e.g.
+                              #   retreat: {backward: 1.6, forward: 0.5}
 
 bridge:
   gain: 10.0

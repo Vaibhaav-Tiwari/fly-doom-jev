@@ -48,3 +48,22 @@ def test_weighting_all_zero_is_noop():
     out = apply_action_weighting(decoded, {"attack": 0.0, "forward": 0.0})
     assert out["selected"] == "noop"
     assert out["combo"] == []
+
+
+def test_intent_bias_amplifies_posture():
+    d = _decision({"ATTACK": 0.5, "EXPLORE": 0.4, "RETREAT": 0.4,
+                   "REPOSITION": 0.2})
+    d.meta["choices"] = {"INTENT": "retreat"}
+    w = jev_action_weights(ACTIONS, d)
+    assert w["backward"] == 0.4 * 1.6          # RETREAT x retreat bias
+    assert w["forward"] == 0.4 * 0.5           # forward suppressed in retreat
+    assert w["turn_left"] == 0.2 * 1.2
+    assert w["attack"] == 0.5                  # not in the retreat posture
+
+
+def test_intent_bias_config_override():
+    d = _decision({"ATTACK": 0.5})
+    d.meta["choices"] = {"INTENT": "attack_now"}
+    w = jev_action_weights(ACTIONS, d,
+                           intent_biases={"attack_now": {"attack": 3.0}})
+    assert w["attack"] == 1.5

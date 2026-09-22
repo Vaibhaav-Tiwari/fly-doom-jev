@@ -122,10 +122,12 @@ Neuron indexing contract (the frontend depends on this):
   "episode_tic": 40,
   "frame_ref": "frames/000010.jpg",
   "state": {
-    "schema_version": "1.1",
+    "schema_version": "1.2",
     "episode_tic": 40, "health": 96.0, "ammo": 13.0, "kills": 2,
     "enemy_visible": true, "enemy_distance": 0.55, "enemy_angle": -0.49,
-    "threat_level": 0.57, "available_actions": ["..."]
+    "threat_level": 0.57, "available_actions": ["..."],
+    "enemy_in_view": true, "aim_offset_deg": -44.1, "alive_s": 1.14,
+    "recent_damage_taken": 4.0
   },
   "jev": {
     "request_id": "mock-000012",
@@ -196,11 +198,28 @@ Notes for consumers:
   forward<-max(EXPLORE, MI.forward), backward<-RETREAT, turns<-max(REPOSITION,
   MI.turn_*); 1.0 when no decision). `motor.scores` is the final weighted
   score the selection came from. Chosen architecture, not biology.
+- `state.schema_version` 1.2 adds the Jev-facing strategy view (additive):
+  `enemy_in_view` (alias of `enemy_visible`), `aim_offset_deg`
+  (`enemy_angle` x 90), `alive_s` (`episode_tic`/35), and
+  `recent_damage_taken` (hp lost over the last ~1 s of game time, 0 when the
+  backend does not track it).
 - `jev` is `null` only before the first decision; afterwards the last valid
   decision is repeated (stale-decision semantics) — check `request_id` changes
-  to detect new decisions. `probabilities` covers the full 10-question bank
+  to detect new decisions. `probabilities` covers the full 11-question bank
   (ATTACK, RETREAT, EXPLORE, REPOSITION, SEEK_AMMO, THREAT_LEVEL,
-  ENEMY_PRESENT, MOVEMENT_INTENT, TARGET_PRIORITY, ENGAGEMENT_CONFIDENCE).
+  ENEMY_PRESENT, MOVEMENT_INTENT, TARGET_PRIORITY, ENGAGEMENT_CONFIDENCE,
+  INTENT). With `jev.strategy_period_s` set (live demo config), Jev runs at
+  TWO cadences: fast ticks ask only `jev.fast_questions` (reflex-level,
+  default ATTACK) and the full bank — including the strategic `INTENT`
+  choice (engage / retreat / circle / advance / attack_now) — every
+  ~1.5 s or on salient events; unasked questions carry over from the previous
+  decision, so `probabilities` always covers the full bank. `meta.questions`
+  (not currently recorded per step) is the honest record of what was asked.
+  `choices.INTENT` is the current strategy posture; it multiplies the
+  action-class weights (`motor.jev_weights` can exceed 1.0 for biased
+  classes). The strategy call's state payload also carries `memory`
+  (last 3 episode outcomes + current intent) — visible only in what Jev
+  receives, not in the recording.
   In live mode (`is_mock: false`) these come from the TypeSafe System One API
   (`POST {JEV_BASE_URL}/systemone`; path configurable via `jev.decide_path`,
   e.g. `/decide` for the hosted proxy). `model` is the server's resolved model

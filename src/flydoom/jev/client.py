@@ -57,7 +57,12 @@ class JevDecision:
 
 class JevClient(ABC):
     @abstractmethod
-    def decide(self, state: EnvironmentState) -> JevDecision: ...
+    def decide(self, state: EnvironmentState,
+               questions: list[str] | None = None,
+               memory: dict | None = None) -> JevDecision:
+        """Ask Jev. ``questions`` = subset of the bank (None = full bank);
+        ``memory`` = rolling context (recent episode outcomes, current intent)
+        merged into the state payload for strategy questions."""
 
     @property
     @abstractmethod
@@ -75,7 +80,9 @@ class MockJevClient(JevClient):
     def name(self) -> str:
         return "mock-jev-v1"
 
-    def decide(self, state: EnvironmentState) -> JevDecision:
+    def decide(self, state: EnvironmentState,
+               questions: list[str] | None = None,
+               memory: dict | None = None) -> JevDecision:
         t0 = time.perf_counter()
         threat = state.threat_level
         ammo_ok = state.ammo > 0
@@ -109,17 +116,35 @@ class MockJevClient(JevClient):
                      "hold": round(0.05 / total, 4),
                      "strafe_left": 0.0, "strafe_right": 0.0}
         probs["MOVEMENT_INTENT"] = max(move_dist.values())
+        # deterministic strategic INTENT (same heuristic family as the bank)
+        if state.enemy_visible and threat > 0.55 and abs(ang) < 0.3 and ammo_ok:
+            intent = "attack_now"
+        elif state.enemy_visible and (state.health < 30
+                                      or state.recent_damage_taken > 20):
+            intent = "retreat"
+        elif state.enemy_visible:
+            intent = "engage"
+        elif state.recent_damage_taken > 20:
+            intent = "circle"
+        else:
+            intent = "advance"
+        choices = {"MOVEMENT_INTENT": max(move_dist, key=move_dist.get),
+                   "INTENT": intent}
+        choice_probs = {"MOVEMENT_INTENT": move_dist, "INTENT": {intent: 1.0}}
+        probs["INTENT"] = 1.0
+        asked = list(questions) if questions else list(QUESTION_BANK)
         return JevDecision(
             request_id=f"mock-{next(self._counter):06d}",
             timestamp=time.time(),
-            probabilities=probs,
+            probabilities={q: probs[q] for q in asked},
             latency_ms=latency,
             model=self.name,
             is_mock=True,
             state_episode_tic=state.episode_tic,
-            meta={"questions": list(QUESTION_BANK),
-                  "choices": {"MOVEMENT_INTENT": max(move_dist, key=move_dist.get)},
-                  "choice_probabilities": {"MOVEMENT_INTENT": move_dist}},
+            meta={"questions": asked,
+                  "choices": {q: c for q, c in choices.items() if q in asked},
+                  "choice_probabilities": {q: d for q, d in choice_probs.items()
+                                           if q in asked}},
         )
 
 
@@ -171,12 +196,16 @@ class LiveJevClient(JevClient):
         resp.raise_for_status()
         return resp.json()
 
-    def decide(self, state: EnvironmentState) -> JevDecision:
+    def decide(self, state: EnvironmentState,
+               questions: list[str] | None = None,
+               memory: dict | None = None) -> JevDecision:
         import httpx
 
+        asked = list(questions) if questions else list(SYSTEMONE_QUESTIONS)
         t0 = time.perf_counter()
-        body = self._post_with_retries(httpx, state)
-        probs, confidence, choices, choice_probs = self._parse_answers(body)
+        body = self._post_with_retries(httpx, state, asked, memory)
+        probs, confidence, choices, choice_probs = self._parse_answers(
+            body, asked)
         return JevDecision(
             request_id=str(uuid.uuid4()),
             timestamp=time.time(),
@@ -185,17 +214,21 @@ class LiveJevClient(JevClient):
             model=str(body.get("model", self.model)),
             is_mock=False,
             state_episode_tic=state.episode_tic,
-            meta={"questions": list(QUESTION_BANK),
+            meta={"questions": asked,
                   "usage": body.get("usage", {}),
                   "confidence": confidence,
                   "choices": choices,
                   "choice_probabilities": choice_probs},
         )
 
-    def _post_with_retries(self, httpx, state: EnvironmentState) -> dict:
+    def _post_with_retries(self, httpx, state: EnvironmentState,
+                           asked: list[str], memory: dict | None) -> dict:
+        state_payload = state.model_dump()
+        if memory:
+            state_payload["memory"] = memory
         payload = {"model": self.model,
-                   "state": state.model_dump(),
-                   "questions": SYSTEMONE_QUESTIONS}
+                   "state": state_payload,
+                   "questions": {q: SYSTEMONE_QUESTIONS[q] for q in asked}}
         for attempt in range(self.max_retries + 1):
             resp = httpx.post(
                 f"{self.base_url}{self.decide_path}",
@@ -216,7 +249,8 @@ class LiveJevClient(JevClient):
         raise JevTransientError("unreachable")  # pragma: no cover
 
     @staticmethod
-    def _parse_answers(body: dict) -> tuple[dict[str, float], dict, dict, dict]:
+    def _parse_answers(body: dict, asked: list[str]
+                       ) -> tuple[dict[str, float], dict, dict, dict]:
         answers = body.get("answers")
         if not isinstance(answers, dict):
             raise ValueError("System One response has no 'answers' object")
@@ -224,7 +258,8 @@ class LiveJevClient(JevClient):
         confidence: dict[str, float] = {}
         choices: dict[str, str] = {}
         choice_probs: dict[str, dict[str, float]] = {}
-        for name, spec in SYSTEMONE_QUESTIONS.items():
+        for name in asked:
+            spec = SYSTEMONE_QUESTIONS[name]
             ans = answers.get(name)
             if not isinstance(ans, dict):
                 raise ValueError(f"System One response is missing answer {name!r}")
