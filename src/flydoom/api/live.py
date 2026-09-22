@@ -381,9 +381,9 @@ class LiveLoop(threading.Thread):
                             "dist": round(goal_dist, 1),
                             "bearing_deg": round(math.degrees(
                                 math.atan2(gdy, gdx)), 1)}
-                state["goal"] = {"exit_dist_units": round(goal_dist, 1),
-                                 "exit_bearing_deg": goal_pub["bearing_deg"],
-                                 "note": "reach the exit lift to clear E1M1"}
+                state.goal = {"exit_dist_units": round(goal_dist, 1),
+                              "exit_bearing_deg": goal_pub["bearing_deg"],
+                              "note": "reach the exit lift to clear E1M1"}
             if controller == "jev":
                 scheduler.update_state(state)
                 decision = scheduler.get_decision()

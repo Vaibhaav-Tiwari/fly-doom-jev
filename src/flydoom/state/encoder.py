@@ -34,6 +34,9 @@ class EnvironmentState(BaseModel):
     recent_damage_taken: float = 0.0    # hp lost over the last ~1 s of game time
     position_x: float = 0.0             # map units (movement/parking evidence)
     position_y: float = 0.0
+    # 1.3 addition — level goal (E1M1): exit-lift geometry from the WAD, fed to
+    # Jev so strategy can be goal-directed, not just survival. None elsewhere.
+    goal: dict | None = None            # {exit_dist_units, exit_bearing_deg, note}
 
 
 def compute_threat(obs: Observation) -> float:
