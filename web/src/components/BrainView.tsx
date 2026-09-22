@@ -255,7 +255,6 @@ export default function BrainView({recording, step}: {recording: Recording; step
     setSceneVersion(version => version + 1);
 
     let frame = 0, lastColorUpdate = 0;
-    let framed = false;
     const resize = () => {
       const w = el.clientWidth, h = el.clientHeight;
       // Keep the canvas' CSS viewport in lockstep with its drawing buffer.
@@ -264,16 +263,20 @@ export default function BrainView({recording, step}: {recording: Recording; step
       renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
-      if (!framed && w > 0 && h > 0) {
+      if (w > 0 && h > 0) {
         const verticalFov = THREE.MathUtils.degToRad(camera.fov);
         const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * camera.aspect);
         const limitingFov = Math.min(verticalFov, horizontalFov);
-        const distance = orbitSphere.radius * 1.12 / Math.sin(limitingFov / 2);
-        camera.position.copy(orbitCenter).add(new THREE.Vector3(0, .025, 1).normalize().multiplyScalar(distance));
+        // The VNC-trimmed brain occupies only the useful anatomy now. Fit its
+        // sphere tightly so the optic lobes and central brain dominate the rail.
+        const distance = orbitSphere.radius * .72 / Math.sin(limitingFov / 2);
+        const direction = camera.position.clone().sub(orbitCenter).normalize();
+        camera.position.copy(orbitCenter).add(direction.multiplyScalar(distance));
         camera.lookAt(orbitCenter);
         controls.target.copy(orbitCenter);
+        controls.minDistance = distance * .62;
+        controls.maxDistance = distance * 4;
         controls.update();
-        framed = true;
       }
     };
     const observer = new ResizeObserver(resize); observer.observe(el); resize();
