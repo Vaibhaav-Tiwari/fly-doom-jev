@@ -11,6 +11,10 @@ const palette: Record<string, string> = {
   other: '#2f82bd', recorded: '#2f82bd',
 };
 const denseOpticGroups = new Set(['ol_sensory', 'visual_projection', 'visual_centrifugal', 'ol_intrinsic']);
+const vncGroups = new Set(['vnc_sensory', 'vnc_intrinsic', 'vnc_motor']);
+// MaleCNS soma Y coordinates above this plane are the ventral cord/neck tail.
+// This is a display crop only; source recordings and connectome arrays remain intact.
+const VNC_DISPLAY_CUTOFF_Y = 50_000;
 const getId = (n: NeuronSample, i = 0) => String(n.body_id ?? n.neuron ?? i);
 const getPos = (n: NeuronSample): [number, number, number] | null =>
   n.position ?? (n.x != null ? [n.x, n.y ?? 0, n.z ?? 0] : null);
@@ -86,8 +90,10 @@ export default function BrainView({recording, step}: {recording: Recording; step
       for (let i = 0; i < bundle.count; i++) {
         const j = i * 3;
         const x = bundle.positions[j], y = bundle.positions[j + 1], z = bundle.positions[j + 2];
-        if ((bundle.flags[i] & 16) && Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
-          out.push({index: i, position: [x, y, z], group: bundle.populationNames[bundle.population[i]] ?? 'other'});
+        const group = bundle.populationNames[bundle.population[i]] ?? 'other';
+        if ((bundle.flags[i] & 16) && Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)
+          && !vncGroups.has(group) && y < VNC_DISPLAY_CUTOFF_Y) {
+          out.push({index: i, position: [x, y, z], group});
         }
       }
       return out;
@@ -97,12 +103,15 @@ export default function BrainView({recording, step}: {recording: Recording; step
         index: i,
         position: getPos(n) ?? annotatedPosition(getId(n, i), i, n.region ?? n.cell_type ?? 'recorded'),
         group: n.region ?? n.cell_type ?? 'recorded',
-      }));
+      })).filter(n => !vncGroups.has(n.group) && n.group !== 'ascending_neuron' && n.group !== 'descending_neuron');
     }
     const out: DrawNeuron[] = [];
-    Object.entries(step?.populations ?? {}).forEach(([group, p]) => (p.sampled ?? []).forEach((n, i) => {
+    Object.entries(step?.populations ?? {}).forEach(([group, p]) => {
+      if (vncGroups.has(group) || group === 'ascending_neuron' || group === 'descending_neuron') return;
+      (p.sampled ?? []).forEach((n, i) => {
       out.push({index: n.neuron ?? out.length, position: getPos(n) ?? annotatedPosition(getId(n, i), out.length, group), group});
-    }));
+      });
+    });
     return out;
   }, [recording, bundle, bundle ? undefined : step?.populations]);
 
@@ -391,7 +400,7 @@ export default function BrainView({recording, step}: {recording: Recording; step
 
   return <div className="brain-stage">
     <div ref={host} className="brain-canvas"/>
-    <div className="brain-title"><span>BRAIN · MALECNS V1.0 · {(bundle?.count ?? drawCount).toLocaleString()} NEURONS</span></div>
+    <div className="brain-title"><span>BRAIN · MALECNS V1.0 · {drawCount.toLocaleString()} POSITIONED · VNC HIDDEN — DISPLAY ONLY</span></div>
     <div className="activity-legend"><span className="firing-key"><i/> FIRING</span>{hasRetinalInput && <span className="visual-key"><i/> RETINAL INPUT · DRIVE</span>}<span className="decoder-key"><i/> ACTION INPUT</span><span className="resting-key"><i/> RESTING</span></div>
   </div>;
 }
