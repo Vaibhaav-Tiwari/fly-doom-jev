@@ -1,136 +1,182 @@
-# jev-doom-fly
+# When Jev Meets a Fly in DOOM
 
-Closed-loop research system coupling a probabilistic decision model (**Jev**,
-mocked by default) to the **full MaleCNS v1.0 *Drosophila* connectome**
-(211,577 neurons / 26.0M neuron-level edges) controlling an agent in
-**ViZDoom**:
+**A real fruit-fly brain — the complete MaleCNS v1.0 connectome, 211,577
+neurons and ~26M synapses, simulated as a spiking network — plays DOOM live.**
+Optional strategy advice comes from **Jev** (TypeSafe System One probabilistic
+decision API). Dopamine-gated plasticity means the fly keeps learning between
+games. All of it is watchable on a live website.
+
+### 🎮 Live demo: https://fly-doom-jev.vercel.app
+
+> Live mode runs while the backend machine is on; recorded replays are always
+> available. Visitors can start fresh games, switch arenas, and toggle
+> JEV+BRAIN / BRAIN ONLY.
+
+---
+
+<!-- ============================================================ -->
+<!-- MEDIA: hero video. Drop a file at docs/media/hero.mp4 (or a  -->
+<!-- GIF) and uncomment one of the two lines below.               -->
+<!-- ============================================================ -->
+<!--
+https://github.com/Vaibhaav-Tiwari/fly-doom-jev/assets/hero.mp4
+
+[![Watch the fly play DOOM](docs/media/hero-thumb.png)](docs/media/hero.mp4)
+-->
+
+<!-- MEDIA: hero screenshot — full cockpit (game + brain + panels)
+![The live cockpit: DOOM feed, full connectome firing, Jev panel](docs/media/cockpit.png)
+-->
+
+## The flow
 
 ```
-ViZDoom RGB frame ─> retinotopic photoreceptor input ─┐
-                                                      ├─> full MaleCNS LIF dynamics
-typed state ─> Jev (async, mock default) ─> modulation bridge (upstream pops only) ─┘
-                                                      │
-        descending-neuron readouts <─ motor decoder <─┘
-                      │
-               ViZDoom action (turn / attack / ...)
+DOOM frame (ViZDoom, 320×240 RGB)
+   │
+   ▼
+photoreceptor currents (retinotopic retinal interface)
+   │
+   ▼
+MaleCNS v1.0 — 211,577 neurons, real wiring, native C LIF kernel
+   │                                          ▲
+   ▼                                          │ dopamine pulses on
+descending-neuron readouts (BCI decoder)       │ kills / aimed shots /
+   │                                           │ damage / death —
+   ▼                                           │ ~61k plastic synapses,
+DOOM actions (turn / move / shoot)             │ weights persist across games
+   │
+   ▼
+Jev strategy layer (optional): structured state + persistent episode memory
+→ INTENT (engage / retreat / circle / advance / attack_now) every ~1–2 s
+→ biases which action class the brain's readout selects
 ```
 
-Research question: can a probabilistic high-level decision signal, coupled to a
-fixed biological connectome, produce observable closed-loop control behavior in
-ViZDoom? See `SCIENCE.md` for exactly what is data, what is engineering, and
-what is NOT claimed.
+One spike in the attack readout = one shot (doomfly-style hair trigger) — but
+only when an enemy is truly in the reticle (real ViZDoom label geometry:
+visible, inside a 14° cone, in range). Fly Arena ends when all enemies are
+dead; E1M1 ends at the real exit lift, with live exit bearing/distance fed to
+Jev and drawn on the site's automap.
 
-## Quick start (macOS, Apple Silicon; no CUDA)
+## What you see on the site
+
+- The actual DOOM feed, live, in color
+- The **full brain** — resting neurons in solid blue, firing neurons in gold,
+  decoder neurons in warm red (top 10,000 most-active per step)
+- Motor output, action scores, and Jev's live choices/probabilities/latency
+- **E1M1 automap** — real level geometry parsed from the WAD, with the fly's
+  position and the exit lift marked, updating live
+- LIVE / RECORDED, FLY ARENA / E1M1, JEV+BRAIN / BRAIN ONLY toggles
+
+<!-- ============================================================ -->
+<!-- MEDIA: screenshots gallery. Suggested shots:                 -->
+<!--   1. brain firing close-up (gold on blue)                    -->
+<!--   2. E1M1 with the minimap overlay                           -->
+<!--   3. brain-only vs Jev comparison                            -->
+<!-- ============================================================ -->
+<!--
+![Full connectome firing during a fight](docs/media/brain-firing.png)
+![E1M1 with live automap](docs/media/e1m1-minimap.png)
+![Jev probabilities mid-decision](docs/media/jev-panel.png)
+-->
+
+## Does Jev help? (measured, directional)
+
+| Controller | Survival (early → late) | Kills/game (early → late) |
+|---|---|---|
+| Brain only | 19.4s → **21.6s** | 0.58 → **1.04** |
+| Jev + brain | 16.6s → 15.7s | 0.67 → 0.87 |
+
+From 488 recorded live episodes. The brain alone *learns* (dopamine
+plasticity); Jev as configured adds latency and bias — the strategy layer is
+deliberately being re-tuned (persistent memory, goal-bearing prompts, batch
+bias search). Honest status: this is engineering on real wiring, not a
+validated fly emulation — see `SCIENCE.md`.
+
+Earlier A/B (n=3): Jev 25.8s vs heuristic 15.5s mean survival. The story
+changes as the strategy layer improves; batch runner included for proper
+sweeps.
+
+## Quick start (macOS, Apple Silicon)
 
 ```bash
-make setup          # uv venv + deps (incl. ViZDoom); compiles the C LIF kernel on first run
-make download-data  # fetch MaleCNS v1.0 flat connectome (~1.2 GB)   [if not present]
-make verify-data    # sha256-check raw files against the pinned manifest
-make run-demo       # record a closed-loop episode -> outputs/recordings/<id>/
-make replay         # replay dashboard + API at http://127.0.0.1:8420
-make live           # live mode: continuous ViZDoom+MaleCNS+Jev loop, HTTP polling API
-make test           # unit + integration tests
-make benchmark      # measured performance numbers -> outputs/metrics/
+make setup            # venv + deps (incl. ViZDoom); compiles the C LIF kernel
+make download-data    # MaleCNS v1.0 flat connectome (~1.2 GB)
+make verify-data      # sha256-check against the pinned manifest
+make live             # live server on 127.0.0.1:8420 (needs .env for real Jev)
+make test             # 89 unit/integration tests
 make batch ARGS="--seeds 42 43 --scenarios fly_arena e1m1 --controllers jev brain"
-                    # batch experiments -> outputs/batch/<ts>/ (episodes.jsonl +
-                    # summary.csv/json; Jev API calls only in 'jev' arms;
-                    # --learn enables plasticity per arm)
 ```
 
-`configs/demo.yaml` uses `jev.mode: live` — the real TypeSafe System One API
-(`JEV_BASE_URL=https://api.typesafe.ai/v1`, `JEV_MODEL=jev-latest`). It needs
-`JEV_API_KEY` in the environment (copy `.env.example` to `.env`, fill it in,
-`source .env`; the key never reaches recordings, logs, or the browser).
-Without a key, set `jev.mode: mock` for the deterministic mock — everything
-else is identical.
+Jev API key: copy `.env.example` → `.env`, fill in `JEV_API_KEY`, `source
+.env`. The key is used only server-side — never in recordings, logs, the repo,
+or the browser. Without it, `jev.mode: mock` runs a deterministic stand-in.
 
-The first `make run-demo` builds the full-graph cache from the raw feather
-files (~130 s, one-time; afterwards mmap-cached, ~10 ms startup). Episodes run
-in realtime (~8.75 controller steps/s; measured controller latency mean ~70 ms
-— see `docs/BENCHMARKS.md`).
+Website:
 
-## What is real vs. mock vs. fixture
+```bash
+cd web && npm install && npm run build
+npm run preview -- --port 4173   # http://127.0.0.1:4173
+```
 
-| Component | Status |
-|---|---|
-| Connectome | **FULL MaleCNS v1.0** (default). Reduced subset / deterministic fixture graph only as explicit, labeled dev/test modes |
-| Synapse signs | From MaleCNS neurotransmitter predictions (ACh +, GABA −, Glu −) |
-| ViZDoom | Real, headless, RGB 320×240, `defend_the_center` (default), `basic`, `deadly_corridor` |
-| Visual pathway | Retinotopic: 5,895 photoreceptors mapped to ommatidia columns, bilinear sRGB sampling, lamina tonic bias |
-| Motor decoder | Typed descending neurons: DNa02 turn L/R, DNp09/DNg100 forward, MDN backward, DNpe017 attack readout |
-| Jev | **Mock** deterministic heuristic by default; **live** mode calls the real TypeSafe System One structured-probability API (`POST /v1/systemone`, model `jev-latest`) — typed noul/score/choice questions over the 11-question bank; two cadences: fast reflex questions (ATTACK) at 3 Hz + strategic INTENT (engage/retreat/circle/advance/attack_now) every ~1.5 s or on salient events, with last-3-episode memory in the state payload, key stays server-side (`JEV_API_KEY`, see `.env.example`) |
-| Behavior honesty | Episodes score ~1–6 kills then die. Not a skilled controller; metrics recorded as-is |
+## Live API (no websockets, plain polling)
 
-## Live mode server
+- `GET /state` — latest snapshot: JPEG frame, game stats, position, goal
+  (E1M1 exit), motor scores, top-10k neuron activity, population rates,
+  retinal drive, Jev block, learning stats
+- `POST /new` — fresh episode; body `{"scenario": "fly_arena"|"e1m1",
+  "controller": "jev"|"brain", "reset_learning": bool}`
+- `GET /health` — status, uptime, episodes, Jev reachability
 
-`make live` (with `.env` sourced) runs the real loop continuously — ViZDoom +
-full MaleCNS + real Jev API — with **no agent/LLM at runtime** (only Jev API
-credits). Simple HTTP polling, no websockets:
+Runtime consumes **zero LLM tokens** — the only external service is the Jev
+API (credits). Every episode is structurally recorded under
+`outputs/recordings/live-*/` and replays on the site unchanged.
 
-- `GET /state` — latest snapshot: status, run_id, sequence, data-url JPEG frame
-  (640×480, ~6 fps cap), game stats, motor scores/channels/readouts, top-256 +
-  motor neuron activity, population mean rates, Jev probabilities/choices/usage
-- `POST /new` — abort the current episode, start a fresh one with a new seed.
-  Optional body: `{"scenario": "fly_arena"|"e1m1"}`, `{"controller":
-  "jev"|"brain"}` (brain = MaleCNS alone, zero Jev calls),
-  `{"reset_learning": true}` (restart the fly's learned weights fresh — by
-  default they carry over across plays and server restarts via the provenance-
-  checked checkpoint `outputs/learning/checkpoint.npz`: one continuously-
-  learning fly)
-- `GET /health` — status, uptime, episode count, Jev reachability
+## Dataset export (Hugging Face-ready)
 
-Every episode is recorded in the standard format under
-`outputs/recordings/live-<timestamp>-<hash>/` (`run_kind: "live_session"`), so
-live sessions replay in the website unchanged. If Jev is unreachable at
-startup the server keeps running on the deterministic mock in a loudly-marked
-degraded mode (`status: "degraded_mock_jev"`, warning in the recording header);
-`/health.jev.ok` is then `false`. CORS allows the Vite dev origins
-(`localhost:4173`/`127.0.0.1:4173`). Knobs: `live.fps`, `live.frame_size`,
-`live.jpeg_quality`, `api.port` in `configs/demo.yaml`; episode length comes
-from `environment.max_episode_tics` / `max_controller_steps`.
+```bash
+python -m flydoom.export.hf   # outputs/recordings -> outputs/hf_dataset
+```
 
-## Recordings & replay
-
-Recordings (format v2, `docs/RECORDING_FORMAT.md`) contain everything needed
-to replay an episode in the browser with **no ViZDoom, no simulation, no Jev
-API**: header (config, provenance, warnings), per-step state/Jev/neural/motor
-records, JPEG frames, episode metrics. The frontend builds against
-`docs/RECORDING_FORMAT.md`.
+Produces a directly pushable HF dataset repo: dataset card (`README.md` with
+YAML configs), `data/episodes.jsonl`, compressed `data/steps-*.jsonl.gz`
+(per-step game state, motor decision, Jev block, neural totals, retinal drive,
+top-K activity), and all frames with an imagefolder index. Incremental —
+re-run any time to append new episodes.
 
 ## Repo layout
 
 ```
 src/flydoom/
-  doom/         ViZDoom wrapper + deterministic fixture env (same interface)
-  malecns/      full connectome builder/loader, reduced subset, fixtures, download/verify
-  neural/       native C-kernel LIF engine + numpy fixture engine (same interface)
-  vision/       photoreceptor retinotopic pathway + mosaic fallback
-  state/        typed, versioned environment state schema
-  jev/          JevClient interface, deterministic mock, async scheduler
-  integration/  Jev->MaleCNS bridge (motor-injection guard)
-  motor/        typed DN decoder + population-bank fallback
-  telemetry/    recording writer (format v2)
-  experiments/  closed-loop runner
-  api/          FastAPI replay server
-engine/native/  lif_kernel.c (compiled at setup, cached by sha256)
-configs/        demo.yaml (+ scenario/decoder config)
+  doom/         ViZDoom wrapper + fixture env
+  malecns/      full connectome builder/loader + download/verify
+  neural/       native C LIF kernel + plasticity + tonic baseline + settle
+  vision/       retinotopic photoreceptor pathway
+  state/        typed versioned state schema (incl. E1M1 goal)
+  jev/          System One client, async scheduler, question bank, memory
+  integration/  Jev→MaleCNS bridge + action-class weighting
+  motor/        typed DN decoder (spike-triggered attack) + reflexes
+                (aim gate, aim-assist, wall-unstuck)
+  telemetry/    recording writer (format 2.2)
+  experiments/  closed-loop runner + headless batch sweeps
+  api/          live server (FastAPI)
+  export/       Hugging Face dataset exporter
+  scenarios/    fly_arena WAD generator + E1M1 automap extractor
+web/            the website (Three.js full-brain view, live + replay)
+configs/        demo.yaml — every knob documented inline
 docs/           RECORDING_FORMAT.md, BENCHMARKS.md
-scripts/        benchmark.py
-tests/          unit + integration (fixtures only; full-graph tests skip without data)
-data/           manifests (raw data gitignored)
-outputs/        recordings, metrics (gitignored)
 ```
 
-## Documentation
+## Honesty box
 
-- `SCIENCE.md` — data/model/engineering-assumption boundaries, limitations
-- `PROVENANCE.md` — what was adapted from which upstream (DOOMFLY, FlyBrain)
-- `THIRD_PARTY.md` — licenses of data/software/upstreams
-- `docs/RECORDING_FORMAT.md` — recording schema (frontend contract)
-- `docs/BENCHMARKS.md` — measured performance numbers
+The wiring is biological reconstruction data (MaleCNS v1.0). The neural
+dynamics (LIF), retinal interface (inferred pixel→photoreceptor mapping),
+motor decoder (typed-DN joystick mappings), Jev coupling, and reinforcement
+events are **engineering models**, not measured fly physiology. Full
+boundaries: `SCIENCE.md`; upstreams and licenses: `PROVENANCE.md`,
+`THIRD_PARTY.md`.
 
-## Deferred
+## Acknowledgments
 
-Real Jev plumbing (retries/caching/cost), experiment-mode comparisons, action
-attribution, Three.js 3D brain viewer, Docker/public deployment. The full spec
-lives in `When Jev Meets a Fly in DOOM.md`.
+MaleCNS v1.0 (FlyWire/MRC LMB et al.) · ViZDoom · FreeDoom assets ·
+inspired by [nftechie/doomfly](https://github.com/nftechie/doomfly) ·
+Jev by TypeSafe AI.
