@@ -115,10 +115,14 @@ class TypedDNDecoder:
                                   "and attack readout are engineering mappings"}
 
     def channels(self, rates: np.ndarray) -> dict[str, float]:
+        """Mean rate per readout set times gain (mean, not sum: a large
+        readout type like DNg02_a must not out-scale small DN pairs purely by
+        neuron count — measured: sum-based attack channel dominated every
+        other score and made Jev's veto ineffective)."""
         out = {}
         for channel, ss in self._sets.items():
-            pos = float(rates[ss["positive"]].sum()) if ss["positive"] else 0.0
-            neg = float(rates[ss["negative"]].sum()) if ss["negative"] else 0.0
+            pos = self._mean(ss["positive"], rates)
+            neg = self._mean(ss["negative"], rates)
             out[channel] = (pos - neg) * self.gains[channel]
         return out
 
