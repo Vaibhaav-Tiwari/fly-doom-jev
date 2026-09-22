@@ -42,13 +42,9 @@ OUT_CFG = os.path.join(HERE, "fly_arena.cfg")
 # melee demons beside them so melee pressure arrives gradually. Counts are
 # deliberately modest (skill-1 halved damage + respawn).
 MONSTERS = [
-    (30101,  64,  96, 180, False),   # FlyImp row (east wall), like stock dtl
-    (30101,  64, 200, 180, False),
+    (30101,  64, 128, 180, False),   # FlyImps (east wall), like stock dtl
     (30101,  64, 288, 180, False),
-    (30101,  64, 376, 180, False),
-    (30101,  64, 480, 180, False),
-    (30102,  32, 128, 180, False),   # FlyDemons at the east wall
-    (30102,  32, 448, 180, False),
+    (30102,  32, 448, 180, False),   # one FlyDemon (melee pressure)
 ]
 
 # Weak monster variants so a slow neural controller gets kills (stock

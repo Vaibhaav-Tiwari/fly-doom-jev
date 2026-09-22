@@ -129,6 +129,27 @@ def build_vision(cfg: dict, connectome):
     return ("mosaic", enc)
 
 
+def resolve_neural_steps(cfg: dict) -> tuple[int, float, float]:
+    """Neural sim steps per controller step -> (steps, dt_ms, ms_per_game_tic).
+
+    `neural.ms_per_game_tic` (brain milliseconds simulated per game tic) is the
+    primary knob: more neural time per tic lets activity propagate from the
+    optic lobe into central brain and descending neurons before the next
+    frame, at the cost of a slower game in wall time. Falls back to the legacy
+    `steps_per_controller_step` when unset.
+    """
+    neural = cfg["neural"]
+    dt = float(neural.get("timestep_ms", 1.0))
+    frame_skip = int(cfg["environment"].get("frame_skip", 4))
+    ms_per_tic = neural.get("ms_per_game_tic")
+    if ms_per_tic is not None:
+        steps = max(1, round(float(ms_per_tic) * frame_skip / dt))
+    else:
+        steps = int(neural.get("steps_per_controller_step", 32))
+        ms_per_tic = steps * dt / frame_skip
+    return steps, dt, float(ms_per_tic)
+
+
 def run_episode(cfg: dict, record: bool = True) -> dict:
     """Run one closed-loop episode. Returns
     {"recording_dir": Path | None, "metrics": dict}."""
@@ -146,8 +167,7 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
     decoder = make_decoder(connectome, cfg)
 
     neural_cfg = cfg["neural"]
-    steps_neural = int(neural_cfg.get("steps_per_controller_step", 32))
-    dt_neural = float(neural_cfg.get("timestep_ms", 1.0))
+    steps_neural, dt_neural, ms_per_tic = resolve_neural_steps(cfg)
     max_steps = int(cfg["environment"].get("max_controller_steps", 175))
     pop_sample = int(cfg["telemetry"].get("population_sample", 32))
     top_k = int(cfg["telemetry"].get("top_k", 256))
@@ -174,6 +194,12 @@ def run_episode(cfg: dict, record: bool = True) -> dict:
                             "skill": getattr(env, "skill", None),
                             "actions": env.available_actions},
             "vision": {"pathway": vision_kind},
+            "neural": {"timestep_ms": dt_neural,
+                       "steps_per_controller_step": steps_neural,
+                       "ms_per_game_tic": round(ms_per_tic, 3),
+                       "brain_ms_per_game_s": round(ms_per_tic * 35.0, 1),
+                       "note": "brain time per game tic; the game runs slower "
+                               "in wall time when this is raised"},
             "jev": {"mode": cfg["jev"].get("mode", "mock"), "client": jev_client.name,
                     "cadence_hz": float(cfg["jev"].get("cadence_hz", 3.0))},
             "bridge": bridge.describe(),

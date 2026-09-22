@@ -18,7 +18,11 @@ environment:
 neural:
   mode: full                  # full (default, real MaleCNS) | reduced | fixture | auto
   timestep_ms: 1.0
-  steps_per_controller_step: 32   # 32ms of neural time per controller step
+  ms_per_game_tic: 24.0       # brain ms simulated per game tic (primary knob).
+                              # 8 = legacy (32 steps x 4 tics); 24 = 3x: deep
+                              # (central/descending) populations get time to light
+                              # up; the game runs ~2-3x slower in wall time.
+  steps_per_controller_step: 32   # fallback when ms_per_game_tic is unset
   data_dir: data/raw/malecns-v1.0
   manifest: data/manifests/malecns-v1.0.manifest.json
   cache_full: data/processed/malecns_full_v1
