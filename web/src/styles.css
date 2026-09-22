@@ -183,6 +183,28 @@ main { width: 100%; padding: 10px 14px 14px; }
 .doom canvas { width: 100%; height: 100%; display: block; object-fit: cover; image-rendering: pixelated; }
 .scanlines { position: absolute; inset: 0; pointer-events: none; opacity: .35; background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(0,0,0,.12) 3px 4px); }
 .viewport-label, .crosshair, .doom-hud { display: none; }
+.minimap {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 4;
+  width: clamp(190px, 27%, 275px);
+  padding: 9px;
+  border: 1px solid rgba(151, 162, 173, .5);
+  background: rgba(5, 8, 11, .82);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .38);
+  backdrop-filter: blur(3px);
+  pointer-events: none;
+}
+.minimap-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; color: #a7afb7; font: 700 7px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
+.minimap-head span { color: #d8b765; font-weight: 600; }
+.minimap svg { width: 100%; height: auto; display: block; }
+.minimap-walls line { stroke: #9ca4aa; stroke-width: 1.05; stroke-linecap: square; opacity: .78; vector-effect: non-scaling-stroke; }
+.minimap-exit circle, .minimap-player circle { vector-effect: non-scaling-stroke; }
+.minimap-exit circle:first-child { fill: rgba(230, 181, 65, .1); stroke: #e6b541; stroke-width: 1.8; }
+.minimap-exit circle:last-child { fill: #e6b541; }
+.minimap-player circle:first-child { fill: rgba(47, 143, 207, .2); stroke: #4db4f5; stroke-width: 1.8; }
+.minimap-player circle:last-child { fill: #c7edff; }
 .game-stats {
   position: relative;
   display: grid;
@@ -337,6 +359,8 @@ main { width: 100%; padding: 10px 14px 14px; }
   .jev-glance { min-height: 210px; border-right: 0; border-bottom: 1px solid var(--line); }
   .scores { min-height: 150px; }
   .activity-legend { right: 12px; flex-wrap: wrap; gap: 8px 12px; }
+  .minimap { right: 8px; bottom: 8px; width: 42%; min-width: 0; padding: 6px; }
+  .minimap-head { font-size: 5px; margin-bottom: 4px; }
 }
 
 .minimap {
