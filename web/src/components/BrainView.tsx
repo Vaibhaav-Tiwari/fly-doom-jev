@@ -243,7 +243,10 @@ export default function BrainView({recording, step}: {recording: Recording; step
     let framed = false;
     const resize = () => {
       const w = el.clientWidth, h = el.clientHeight;
-      renderer.setSize(w, h, false);
+      // Keep the canvas' CSS viewport in lockstep with its drawing buffer.
+      // With updateStyle=false, DPR made the canvas 1.5x larger than its
+      // clipped host, so the correctly-centered scene appeared down-right.
+      renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       if (!framed && w > 0 && h > 0) {
