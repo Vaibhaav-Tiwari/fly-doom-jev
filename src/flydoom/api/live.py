@@ -71,8 +71,10 @@ class LiveLoop(threading.Thread):
         self.degraded_reason: str | None = None
         self.episodes = 0
         self.started_at = time.time()
+        self.controller = cfg.get("controller", "jev")  # 'jev' | 'brain'
         self._reset_requested = threading.Event()
         self._pending_scenario: str | None = None
+        self._pending_controller: str | None = None
         self._snapshot_json = json.dumps({"status": "starting"})
 
     # ------------------------------------------------------------- snapshot
@@ -142,6 +144,7 @@ class LiveLoop(threading.Thread):
         rec_cfg = cfg.get("recording", {})
         scenario = cfg["environment"].get("scenario", "fly_arena")
         step_period_s = env.frame_skip / 35.0
+        scheduler.set_active(self.controller == "jev")  # brain mode: no calls
         self.status = "degraded_mock_jev" if self.degraded_reason else "running"
         scheduler.start()
         episode_i = 0
@@ -157,6 +160,14 @@ class LiveLoop(threading.Thread):
                     step_period_s = env.frame_skip / 35.0
                     log.info("live scenario switched to %s", scenario)
                 self._pending_scenario = None
+                if (self._pending_controller is not None
+                        and self._pending_controller != self.controller):
+                    self.controller = self._pending_controller
+                    # brain-only mode: Jev fully bypassed — scheduler paused,
+                    # ZERO API calls; decoder readout alone drives actions
+                    scheduler.set_active(self.controller == "jev")
+                    log.info("live controller switched to %s", self.controller)
+                self._pending_controller = None
                 episode_i += 1
                 seed = self.base_seed + episode_i - 1
                 reason = self._run_episode(
@@ -170,7 +181,8 @@ class LiveLoop(threading.Thread):
                     pop_sample=pop_sample, top_k=top_k, motor_idx=motor_idx,
                     motor_ids=motor_ids, assets_ref=assets_ref, rec_cfg=rec_cfg,
                     step_period_s=step_period_s, connectome=connectome,
-                    plasticity=plasticity, shaped_reward=shaped_reward)
+                    plasticity=plasticity, shaped_reward=shaped_reward,
+                    controller=self.controller)
                 # learned weights persist across natural episode ends (that is
                 # the point); a manual reset (POST /new) starts the fly fresh
                 if plasticity and reason == "manual_reset":
@@ -186,7 +198,7 @@ class LiveLoop(threading.Thread):
                      dt_neural, ms_per_tic, tonic_meta, weighting,
                      apply_weighting, weights_of, scenario, pop_sample, top_k,
                      motor_idx, motor_ids, assets_ref, rec_cfg, step_period_s,
-                     connectome, plasticity, shaped_reward) -> str:
+                     connectome, plasticity, shaped_reward, controller) -> str:
         import uuid
         run_id = (time.strftime("live-%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6])
         writer = RecordingWriter(rec_cfg.get("directory", "outputs/recordings"),
@@ -196,6 +208,7 @@ class LiveLoop(threading.Thread):
             "run_kind": "live_session",
             "software_version": flydoom.__version__,
             "seed": seed,
+            "controller": controller,  # 'jev' (Jev+MaleCNS) | 'brain' (MaleCNS only)
             "config": self.cfg,
             "connectome": {"provenance": connectome.provenance,
                            "n_neurons": connectome.n_neurons,
@@ -226,6 +239,9 @@ class LiveLoop(threading.Thread):
             "connectome_assets": assets_ref,
             "telemetry": {"population_sample": pop_sample, "top_k": top_k},
             "warnings": (_fallback_warnings(env, connectome, jev_client)
+                         + (["BRAIN-ONLY CONTROLLER: Jev bypassed by design "
+                             "(zero API calls); actions are pure neural "
+                             "decoder readout"] if controller == "brain" else [])
                          + ([f"DEGRADED LIVE MODE: {self.degraded_reason}"]
                             if self.degraded_reason else [])),
         })
@@ -238,6 +254,9 @@ class LiveLoop(threading.Thread):
         # first decision within ~1s; until then the stale-decision semantics
         # keep the previous decision active (recorded honestly per step)
         scheduler.update_state(encode_state(obs, env.available_actions))
+        if controller == "brain":
+            log.info("live episode %d: BRAIN-ONLY controller — Jev bypassed, "
+                     "zero API calls this episode", episode_i)
         self.episodes += 1
         log.info("live episode %d started: run_id=%s seed=%d",
                  episode_i, run_id, seed)
@@ -267,8 +286,11 @@ class LiveLoop(threading.Thread):
             state = encode_state(obs, env.available_actions,
                                  recent_damage=max(0.0, health_hist[0]
                                                    - float(obs.health)))
-            scheduler.update_state(state)
-            decision = scheduler.get_decision()
+            if controller == "jev":
+                scheduler.update_state(state)
+                decision = scheduler.get_decision()
+            else:
+                decision = None  # brain-only: pure neural decoder, no Jev
 
             if vision_kind == "photoreceptor":
                 s_idx, s_cur = vision.sample(obs.frame, steps_neural * dt_neural)
@@ -327,6 +349,7 @@ class LiveLoop(threading.Thread):
             self._publish({
                 "run_id": run_id,
                 "scenario": scenario,
+                "controller": controller,
                 "sequence": sequence,
                 "generated_at_ms": round(now * 1000.0, 1),
                 "frame": "data:image/jpeg;base64," + last_frame_b64,
@@ -407,6 +430,7 @@ class LiveLoop(threading.Thread):
 
         episode = {
             "controller_steps": step_i + 1,
+            "controller": controller,
             "episode_tics": int(obs.episode_tic),
             "survival_s": round(obs.episode_tic / 35.0, 2),
             "duration_s": round(engine.time_ms / 1000.0, 2),
@@ -451,21 +475,28 @@ class LiveLoop(threading.Thread):
         return base64.b64encode(buf.getvalue()).decode("ascii")
 
     # ----------------------------------------------------------------- api
-    def request_new_episode(self, scenario: str | None = None) -> str | None:
-        """Abort the current episode; optionally switch scenario next episode.
-        Returns an error string for an unknown scenario, else None."""
+    def request_new_episode(self, scenario: str | None = None,
+                            controller: str | None = None) -> str | None:
+        """Abort the current episode; optionally switch scenario/controller for
+        the next one. Returns an error string for invalid input, else None."""
         if scenario is not None:
             from flydoom.doom.base import SCENARIOS
             if scenario not in SCENARIOS:
                 return (f"unknown scenario {scenario!r}; "
                         f"supported: {sorted(SCENARIOS)}")
             self._pending_scenario = scenario
+        if controller is not None:
+            if controller not in ("jev", "brain"):
+                return (f"unknown controller {controller!r}; "
+                        "supported: ['brain', 'jev']")
+            self._pending_controller = controller
         self._reset_requested.set()
         return None
 
     def health(self) -> dict:
         jev_ok = self.degraded_reason is None
         return {"status": self.status,
+                "controller": self.controller,
                 "uptime_s": round(time.time() - self.started_at, 1),
                 "episodes": self.episodes,
                 "jev": {"ok": jev_ok,
@@ -484,14 +515,17 @@ def create_app(cfg: dict) -> tuple:
 
     @app.post("/new")
     def new(body: dict | None = None) -> dict:
-        """Start a fresh episode (new seed). Optional body {"scenario": name}
-        switches the environment for the next episode."""
-        scenario = (body or {}).get("scenario")
-        err = loop.request_new_episode(scenario=scenario)
+        """Start a fresh episode (new seed). Optional body:
+        {"scenario": name} switches the environment, {"controller":
+        "jev"|"brain"} switches the controller (brain = MaleCNS alone,
+        Jev bypassed, zero API calls) for the next episode."""
+        err = loop.request_new_episode(scenario=(body or {}).get("scenario"),
+                                       controller=(body or {}).get("controller"))
         if err:
             return {"status": "error", "error": err}
         return {"status": "reset_requested",
-                "scenario": scenario or "unchanged"}
+                "scenario": (body or {}).get("scenario") or "unchanged",
+                "controller": (body or {}).get("controller") or "unchanged"}
 
     @app.get("/health")
     def health() -> dict:
