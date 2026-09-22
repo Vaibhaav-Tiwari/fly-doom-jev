@@ -34,3 +34,5 @@ _vizdoom.ini
 # native kernel build artifacts
 engine/native/build/
 outputs/connectome_assets/*
+outputs/batch/*
+outputs/learning/*
