@@ -93,13 +93,14 @@ export default function BrainView({recording, step}: {recording: Recording; step
     controls.minDistance = 3;
     controls.maxDistance = 22;
 
-    const geometry = new THREE.OctahedronGeometry(bundle?.count ? .025 : .07, 0);
+    const geometry = new THREE.OctahedronGeometry(bundle?.count ? .045 : .07, 0);
     const material = new THREE.MeshBasicMaterial({
-      color: 0xffffff, vertexColors: true, transparent: true, opacity: .9,
+      color: 0xffffff, vertexColors: false, transparent: true, opacity: 1,
       blending: THREE.NormalBlending, depthWrite: false, toneMapped: false, fog: false,
     });
     const cloud = new THREE.InstancedMesh(geometry, material, neurons.length);
     cloud.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    cloud.frustumCulled = false;
     cloud.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(neurons.length * 3), 3);
     cloud.instanceColor.setUsage(THREE.DynamicDrawUsage);
     mesh.current = cloud;
@@ -116,6 +117,11 @@ export default function BrainView({recording, step}: {recording: Recording; step
       bases[i * 3] = color.r; bases[i * 3 + 1] = color.g; bases[i * 3 + 2] = color.b;
     });
     baseColors.current = bases;
+    // Instanced colors default to black. Seed the resting palette immediately
+    // so the connectome remains visible even before the first animation frame.
+    const initialColors = cloud.instanceColor.array as Float32Array;
+    for (let i = 0; i < initialColors.length; i++) initialColors[i] = bases[i] * .35;
+    cloud.instanceColor.needsUpdate = true;
 
     const box = new THREE.Box3();
     neurons.forEach(n => box.expandByPoint(new THREE.Vector3(...n.position)));
@@ -146,8 +152,19 @@ export default function BrainView({recording, step}: {recording: Recording; step
     activeGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(activeCapacity * 3), 3));
     activeGeometry.setDrawRange(0, 0);
     firingGeometry.current = activeGeometry;
-    const haloMaterial = new THREE.PointsMaterial({color: 0xff9f2f, size: .18, transparent: true, opacity: .8, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
-    const coreMaterial = new THREE.PointsMaterial({color: 0xfff5cf, size: .075, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
+    const glowCanvas = document.createElement('canvas');
+    glowCanvas.width = glowCanvas.height = 64;
+    const glowContext = glowCanvas.getContext('2d')!;
+    const glowGradient = glowContext.createRadialGradient(32, 32, 0, 32, 32, 32);
+    glowGradient.addColorStop(0, 'rgba(255,255,255,1)');
+    glowGradient.addColorStop(.18, 'rgba(255,255,255,.96)');
+    glowGradient.addColorStop(.5, 'rgba(255,255,255,.34)');
+    glowGradient.addColorStop(1, 'rgba(255,255,255,0)');
+    glowContext.fillStyle = glowGradient;
+    glowContext.fillRect(0, 0, 64, 64);
+    const glowMap = new THREE.CanvasTexture(glowCanvas);
+    const haloMaterial = new THREE.PointsMaterial({color: 0xff9f2f, map: glowMap, size: .82, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
+    const coreMaterial = new THREE.PointsMaterial({color: 0xfff8df, map: glowMap, size: .2, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
     firingHalo.current = haloMaterial;
     firingCore.current = coreMaterial;
     scene.add(new THREE.Points(activeGeometry, haloMaterial), new THREE.Points(activeGeometry, coreMaterial));
@@ -158,7 +175,7 @@ export default function BrainView({recording, step}: {recording: Recording; step
     actionGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(actionCapacity * 3), 3));
     actionGeom.setDrawRange(0, 0);
     actionGeometry.current = actionGeom;
-    const actionMaterial = new THREE.PointsMaterial({color: 0xff426d, size: .24, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
+    const actionMaterial = new THREE.PointsMaterial({color: 0xff426d, map: glowMap, size: .95, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false});
     scene.add(new THREE.Points(actionGeom, actionMaterial));
 
     const visualPositions: number[] = [];
@@ -170,7 +187,7 @@ export default function BrainView({recording, step}: {recording: Recording; step
     });
     const visualGeometry = new THREE.BufferGeometry();
     visualGeometry.setAttribute('position', new THREE.Float32BufferAttribute(visualPositions, 3));
-    const visualMat = new THREE.PointsMaterial({color: 0x8edcff, size: .045, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false});
+    const visualMat = new THREE.PointsMaterial({color: 0x8edcff, map: glowMap, size: .1, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false});
     visualMaterial.current = visualMat;
     scene.add(new THREE.Points(visualGeometry, visualMat));
     // The activity effect can run before Three has finished building these
@@ -192,14 +209,14 @@ export default function BrainView({recording, step}: {recording: Recording; step
           const desired = t[i] * pulse;
           l[i] = desired > l[i] ? l[i] + (desired - l[i]) * .7 : l[i] * .965;
           const glow = Math.max(l[i], flags[i] ? 1 : 0), j = i * 3;
-          out[j] = base[j] * (.1 + glow * .22) + glow * .95;
-          out[j + 1] = base[j + 1] * (.1 + glow * .22) + glow * .58;
-          out[j + 2] = base[j + 2] * (.1 + glow * .22) + glow * .16;
+          out[j] = base[j] * (.35 + glow * .22) + glow * .95;
+          out[j + 1] = base[j + 1] * (.35 + glow * .22) + glow * .58;
+          out[j + 2] = base[j + 2] * (.35 + glow * .22) + glow * .16;
         }
         cloud.instanceColor!.needsUpdate = true;
       }
-      haloMaterial.size = .17 + .045 * (.5 + .5 * Math.sin(now * .012));
-      coreMaterial.size = .07 + .018 * (.5 + .5 * Math.sin(now * .015));
+      haloMaterial.size = .68 + .26 * (.5 + .5 * Math.sin(now * .012));
+      coreMaterial.size = .17 + .07 * (.5 + .5 * Math.sin(now * .015));
       visualMat.opacity = visualLevel.current * (.24 + .12 * (.5 + .5 * Math.sin(now * .01)));
       controls.update(); renderer.render(scene, camera);
     };
@@ -207,7 +224,7 @@ export default function BrainView({recording, step}: {recording: Recording; step
     return () => {
       cancelAnimationFrame(frame); observer.disconnect(); controls.dispose();
       geometry.dispose(); material.dispose(); activeGeometry.dispose(); haloMaterial.dispose(); coreMaterial.dispose();
-      actionGeom.dispose(); actionMaterial.dispose(); visualGeometry.dispose(); visualMat.dispose(); renderer.dispose(); renderer.domElement.remove();
+      actionGeom.dispose(); actionMaterial.dispose(); visualGeometry.dispose(); visualMat.dispose(); glowMap.dispose(); renderer.dispose(); renderer.domElement.remove();
       mesh.current = null; firingGeometry.current = null; actionGeometry.current = null;
     };
   }, [neurons, bundle, recording]);
