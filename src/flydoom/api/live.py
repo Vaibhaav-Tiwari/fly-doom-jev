@@ -123,6 +123,9 @@ class LiveLoop(threading.Thread):
         from flydoom.integration.weighting import (apply_action_weighting,
                                                    jev_action_weights)
         weighting = bool(cfg["jev"].get("action_weighting", False))
+        from flydoom.neural.plasticity import (maybe_make_plasticity,
+                                               shaped_reward)
+        plasticity = maybe_make_plasticity(cfg, connectome, engine)
         steps_neural, dt_neural, ms_per_tic = resolve_neural_steps(cfg)
         pop_sample = int(cfg["telemetry"].get("population_sample", 32))
         top_k = int(cfg["telemetry"].get("top_k", 256))
@@ -148,7 +151,7 @@ class LiveLoop(threading.Thread):
                 self._pending_scenario = None
                 episode_i += 1
                 seed = self.base_seed + episode_i - 1
-                self._run_episode(
+                reason = self._run_episode(
                     episode_i=episode_i, seed=seed, env=env, engine=engine,
                     vision_kind=vision_kind, vision=vision, scheduler=scheduler,
                     jev_client=jev_client, bridge=bridge, decoder=decoder,
@@ -158,7 +161,12 @@ class LiveLoop(threading.Thread):
                     weights_of=jev_action_weights, scenario=scenario,
                     pop_sample=pop_sample, top_k=top_k, motor_idx=motor_idx,
                     motor_ids=motor_ids, assets_ref=assets_ref, rec_cfg=rec_cfg,
-                    step_period_s=step_period_s, connectome=connectome)
+                    step_period_s=step_period_s, connectome=connectome,
+                    plasticity=plasticity, shaped_reward=shaped_reward)
+                # learned weights persist across natural episode ends (that is
+                # the point); a manual reset (POST /new) starts the fly fresh
+                if plasticity and reason == "manual_reset":
+                    plasticity.reset()
                 self._reset_requested.clear()
         finally:
             scheduler.stop()
@@ -170,7 +178,7 @@ class LiveLoop(threading.Thread):
                      dt_neural, ms_per_tic, tonic_meta, weighting,
                      apply_weighting, weights_of, scenario, pop_sample, top_k,
                      motor_idx, motor_ids, assets_ref, rec_cfg, step_period_s,
-                     connectome) -> None:
+                     connectome, plasticity, shaped_reward) -> str:
         import uuid
         run_id = (time.strftime("live-%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6])
         writer = RecordingWriter(rec_cfg.get("directory", "outputs/recordings"),
@@ -203,6 +211,8 @@ class LiveLoop(threading.Thread):
                     "cadence_hz": float(self.cfg["jev"].get("cadence_hz", 3.0))},
             "bridge": bridge.describe(),
             "motor": decoder.describe(),
+            "plasticity": (plasticity.describe() if plasticity
+                           else {"enabled": False}),
             "motor_population": {"indices": [int(i) for i in motor_idx],
                                  "body_ids": motor_ids},
             "connectome_assets": assets_ref,
@@ -225,6 +235,7 @@ class LiveLoop(threading.Thread):
                  episode_i, run_id, seed)
 
         t_start = time.time()
+        prev_obs = obs
         jev_d0 = scheduler.decisions_made
         jev_e0 = scheduler.errors
         sequence = 0
@@ -258,6 +269,11 @@ class LiveLoop(threading.Thread):
                 combined[int(i)] = combined.get(int(i), 0.0) + float(c)
             for i, c in zip(b_idx, b_cur):
                 combined[int(i)] = combined.get(int(i), 0.0) + float(c)
+            if plasticity:
+                pulse = plasticity.pending_injection()  # DAN reward pulse
+                if pulse is not None:
+                    for i, c in zip(*pulse):
+                        combined[int(i)] = combined.get(int(i), 0.0) + float(c)
             engine.inject_input(
                 np.fromiter(combined.keys(), dtype=np.int64),
                 np.fromiter(combined.values(), dtype=np.float32))
@@ -271,6 +287,11 @@ class LiveLoop(threading.Thread):
             result = env.step(combo)
             obs = result.observation
             total_reward += result.reward
+            if plasticity:
+                plasticity.note_reward(shaped_reward(self.cfg, prev_obs, obs,
+                                                     result.done))
+                plasticity.update(engine.rate, step_period_s)
+            prev_obs = obs
             latencies.append((time.perf_counter() - t_step) * 1000.0)
             beh["turn_imb"].append(float(decoded.get("imbalances", {}).get("turn", 0.0)))
             beh["attack_ch"].append(float(decoded.get("channels", {}).get("attack", 0.0)))
@@ -314,6 +335,7 @@ class LiveLoop(threading.Thread):
                 "retina": retina_rec,
                 "activity": activity,
                 "populations": pops,
+                "learning": plasticity.stats() if plasticity else None,
                 "jev": None if decision is None else {
                     "model": decision.model, "is_mock": decision.is_mock,
                     "probabilities": decision.probabilities,
@@ -358,6 +380,7 @@ class LiveLoop(threading.Thread):
                           "imbalances": decoded.get("imbalances"),
                           "readout_rates": decoded.get("readout_rates")},
                 "reward": result.reward,
+                "learning": plasticity.stats() if plasticity else None,
                 "controller_latency_ms": round(latencies[-1], 3),
             })
             if result.done:
@@ -386,12 +409,16 @@ class LiveLoop(threading.Thread):
             if latencies else {},
             "neural_total_spikes": engine.total_spikes,
             "behavior": _behavior_metrics(beh),
+            "learning": ({**plasticity.stats(),
+                          "delta_sha256_16": plasticity.delta_sha()}
+                         if plasticity else None),
         }
         writer.write_episode_end({"episode": episode})
         writer.close()
         log.info("live episode %d done: run_id=%s tics=%d kills=%d reason=%s",
                  episode_i, run_id, int(obs.episode_tic), int(obs.kills),
                  reset_reason)
+        return reset_reason
 
     # ----------------------------------------------------------------- jpeg
     def _encode_frame(self, frame_rgb: np.ndarray) -> str:

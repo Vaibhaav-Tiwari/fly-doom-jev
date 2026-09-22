@@ -113,6 +113,26 @@ telemetry:
   top_k: 256                  # most-active neurons recorded per controller step
                               # (activity.top in each step record)
 
+plasticity:                     # reward-modulated dopamine plasticity (CHOSEN
+  enabled: true                 # DYNAMICS, unvalidated — not biology; doomfly
+  learning_rate: 0.05           # v6 reference). Shaped reward events (kill /
+  eligibility_tau_s: 1.0        # health delta / death) pulse dopaminergic
+  dopamine_tau_s: 1.5           # neurons (PAM for +, PPL1 for -) and gate a
+  ref_rate_hz: 20.0             # Hebbian eligibility-trace update on KC->MBON
+  baseline_hz: 3.0              # rates below this (tonic spontaneous activity)
+                                # build NO eligibility — else tonic makes every
+                                # edge eligible and chip damage erases the MB
+  negative_gain: 0.25           # depression is 4x weaker than potentiation:
+                                # continuous chip damage must not overpower
+                                # rare kill events (measured over-depression)
+  dan_pulse_mv: 20.0            # synapses only. Weights clamp to
+  dan_pulse_steps: 3            # [0, max_weight_multiplier*w0] (runaway guard),
+  max_weight_multiplier: 3.0    # persist across episodes, reset on POST /new.
+  reward_kill: 1.0              # shaped reward: raw ViZDoom reward is living-
+  reward_health_delta: 0.02     # reward only, so events come from observation
+  reward_death: -1.0            # deltas (damage dealt not directly observable;
+                                # kill is its proxy)
+
 recording:
   directory: outputs/recordings
   record_frames: true         # JPEG frames for browser replay

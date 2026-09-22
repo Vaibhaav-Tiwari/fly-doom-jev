@@ -20,7 +20,7 @@ def test_closed_loop_episode_end_to_end(fixture_cfg, tmp_path):
 
     rec = load_recording(fixture_cfg["recording"]["directory"], rec_dir.name)
     h = rec["header"]
-    assert h["recording_format_version"] == "2.1"
+    assert h["recording_format_version"] == "2.2"
     assert h["environment"]["backend"] == "fixture"
     assert h["connectome"]["provenance"]["source"] == "fixture"
     assert any("FIXTURE" in w for w in h["warnings"])  # fallbacks are explicit

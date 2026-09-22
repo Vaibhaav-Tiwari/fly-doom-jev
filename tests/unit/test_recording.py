@@ -16,7 +16,7 @@ def test_recording_roundtrip(tmp_path):
     assert [r["run_id"] for r in runs] == ["test-run"]
     rec = load_recording(tmp_path, "test-run")
     assert rec["header"]["environment_backend"] == "fixture"
-    assert rec["header"]["recording_format_version"] == "2.1"
+    assert rec["header"]["recording_format_version"] == "2.2"
     assert len(rec["steps"]) == 1
     assert rec["frames"]["count"] == 1
     assert rec["frames"]["codec"] == "jpeg"
