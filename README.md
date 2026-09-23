@@ -6,11 +6,12 @@ Optional strategy advice comes from **Jev** (TypeSafe System One probabilistic
 decision API). Dopamine-gated plasticity means the fly keeps learning between
 games. All of it is watchable on a live website.
 
-### 🎮 Live demo: https://fly-doom-jev.vercel.app
+### 🎮 Demo: https://fly-doom-jev.vercel.app
 
-> Live mode runs while the backend machine is on; recorded replays are always
-> available. Visitors can start fresh games, switch arenas, and toggle
-> JEV+BRAIN / BRAIN ONLY.
+> The public site is **fully static** — it replays curated recorded episodes
+> (arena clears with and without Jev, an E1M1 exit hunt) and is always up.
+> **Live mode is self-hosted**: run the backend yourself (below) and the same
+> frontend talks to it — bring your own machine and your own Jev API key.
 
 ---
 
@@ -117,6 +118,20 @@ Website:
 cd web && npm install && npm run build
 npm run preview -- --port 4173   # http://127.0.0.1:4173
 ```
+
+### Self-hosting live mode
+
+The frontend needs no backend for recorded replay. To run **live** games:
+
+```bash
+make live                                   # backend on 127.0.0.1:8420
+VITE_LIVE_API=http://127.0.0.1:8420 npm run build --prefix web
+```
+
+Any machine that can run the backend (4+ GB RAM for the full connectome) can
+be the live server — set `VITE_LIVE_API` to its URL at build time and the
+site's LIVE toggle connects to it. Runtime consumes zero LLM tokens; only Jev
+API credits are spent, server-side.
 
 ## Live API (no websockets, plain polling)
 
