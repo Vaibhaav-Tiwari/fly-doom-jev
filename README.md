@@ -6,10 +6,11 @@ Optional strategy advice comes from **Jev** (TypeSafe System One probabilistic
 decision API). Dopamine-gated plasticity means the fly keeps learning between
 games. All of it is watchable on a live website.
 
-### 🎮 Demo: https://fly-doom-jev.vercel.app
+### 🎮 Demo: https://vaibhaav-tiwari.github.io/fly-doom-jev/
 
 > The public site is **fully static** — it replays curated recorded episodes
-> (arena clears with and without Jev, an E1M1 exit hunt) and is always up.
+> (arena clears with and without Jev, an E1M1 exit hunt), served from GitHub
+> Pages (`gh-pages` branch), always up, zero servers.
 > **Live mode is self-hosted**: run the backend yourself (below) and the same
 > frontend talks to it — bring your own machine and your own Jev API key.
 
