@@ -1,8 +1,8 @@
-# Fly//DOOM live + replay
+# Fly//DOOM replay + optional live mode
 
-A React + TypeScript + Three.js experience with a live broadcast and static recorded fallback. The fly brain is the main stage: real activity lights up the 3D MaleCNS view while the matching ViZDoom frame and motor action play beside it.
+A React + TypeScript + Three.js static replay experience. The fly brain is the main stage: real recorded activity lights up the 3D MaleCNS view while the matching ViZDoom frame and motor action play beside it. The featured recording opens by default and needs no backend, API key, or network service.
 
-Live mode talks only to the local broadcaster at `http://127.0.0.1:8420`; no API key is sent to the browser. Pressing **Play Live** requests a fresh seeded game. Every live episode is recorded by the backend and can later be served as a static replay. If the broadcaster is unavailable, the UI falls back to its bundled recordings.
+Live mode is optional. Set `VITE_LIVE_API` to the self-hosted broadcaster URL before building (for example `/live-api` in local development). No API key is sent to the browser. If it is not configured or reachable, the UI explains how to self-host while all recorded runs remain usable.
 
 ## Develop
 
@@ -12,7 +12,13 @@ npm ci
 npm run dev
 ```
 
-Development mode proxies `/live-api` to port `8420`, allowing the worker preview to run on any local Vite port. A static production build connects directly to `http://127.0.0.1:8420` (the backend permits the production preview origin on port `4173`). Set `VITE_LIVE_API` at build time to override that URL.
+To opt into the local live broadcaster, use the included Vite proxy:
+
+```bash
+VITE_LIVE_API=/live-api npm run dev
+```
+
+The proxy forwards `/live-api` to `http://127.0.0.1:8420`. For a production build, set `VITE_LIVE_API` to the URL where the browser can reach your self-hosted broadcaster.
 
 ## Build and serve
 
@@ -35,9 +41,7 @@ The loader tolerates missing optional data. It reads v1 `header`, `step`, `frame
 
 ## Bundled recordings
 
-The featured recording is format 2.1 and is fully static: 93 color JPEG gameplay frames, live Jev 1.13 decisions, neuron-level activity, exact per-action decoder inputs, and the shared MaleCNS visualization bundle. The bundle indexes all 211,577 neurons; 141,781 have recorded soma coordinates and are rendered as GPU instances. Neurons without an annotated soma position remain indexed for activity and attribution but are not assigned invented coordinates.
-
-Two legacy v1 recordings remain selectable as compatibility examples. They use recorded grayscale buffers and sampled activity. Their fallback spatial layout is explicitly labeled as an annotation.
+The static catalog contains three curated format 2.2 runs: a featured Jev + brain arena clear, a brain-only arena clear, and an E1M1 exit hunt with a synchronized automap. They share the full MaleCNS asset bundle: 211,577 indexed neurons, with the 141,781 annotated soma positions rendered as GPU instances. Neurons without an annotated position are never assigned invented coordinates.
 
 ## Tests
 

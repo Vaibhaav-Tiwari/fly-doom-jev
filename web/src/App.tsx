@@ -2,12 +2,29 @@ import {useEffect, useMemo, useRef, useState} from 'react';
 import {BrainCircuit, ChevronDown, Clock3, Database, Heart, Pause, Play, Radio, RotateCcw, Skull, Volume2, Zap} from 'lucide-react';
 import type {CatalogItem, ControllerMode, LiveSnapshot, Recording} from './lib/types';
 import {loadCatalog, loadRecording, nearestStep, pct} from './lib/recording';
-import {getLiveHealth, getLiveState, liveSnapshotToStep, startFreshLiveRun} from './lib/live';
+import {getLiveHealth, getLiveState, LIVE_MODE_AVAILABLE, liveSnapshotToStep, startFreshLiveRun} from './lib/live';
 import BrainView from './components/BrainView';
 import DoomViewport from './components/DoomViewport';
 
 type Mode = 'live' | 'recorded';
 type LivePhase = 'checking' | 'ready' | 'connecting' | 'playing' | 'offline';
+
+const LIVE_SETUP_NOTICE = 'Live mode needs the self-hosted backend';
+
+function recordingScenario(recording?: Recording): 'fly_arena' | 'e1m1' | undefined {
+  if (!recording) return undefined;
+  const config = recording.header.config;
+  const environment = config?.environment;
+  const configured = typeof config?.scenario === 'string'
+    ? config.scenario
+    : environment && typeof environment === 'object' && typeof (environment as Record<string, unknown>).scenario === 'string'
+      ? (environment as Record<string, unknown>).scenario
+      : undefined;
+  // The id fallback keeps older packaged E1M1 recordings useful if their copied
+  // simulator config predates the explicit scenario field.
+  if (configured === 'e1m1' || recording.id.toLowerCase().includes('e1m1')) return 'e1m1';
+  return configured === 'fly_arena' ? 'fly_arena' : undefined;
+}
 
 const actionColor: Record<string, string> = {
   attack: '#c77979', forward: '#a8b9aa', turn_left: '#a391c5',
@@ -18,7 +35,7 @@ export default function App() {
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [runs, setRuns] = useState<Record<string, Recording>>({});
   const [selected, setSelected] = useState('');
-  const [mode, setMode] = useState<Mode>('live');
+  const [mode, setMode] = useState<Mode>('recorded');
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [scenario, setScenario] = useState<'fly_arena' | 'e1m1'>('fly_arena');
@@ -27,10 +44,10 @@ export default function App() {
     catch { return 'jev'; }
   });
   const [error, setError] = useState('');
-  const [livePhase, setLivePhase] = useState<LivePhase>('checking');
+  const [livePhase, setLivePhase] = useState<LivePhase>('offline');
   const [liveSnapshot, setLiveSnapshot] = useState<LiveSnapshot | null>(null);
   const [pollLive, setPollLive] = useState(false);
-  const [liveNotice, setLiveNotice] = useState('Checking the broadcaster…');
+  const [liveNotice, setLiveNotice] = useState(LIVE_SETUP_NOTICE);
   const raf = useRef(0);
   const last = useRef(0);
 
@@ -41,21 +58,6 @@ export default function App() {
       const loaded = await Promise.all(items.map(loadRecording));
       setRuns(Object.fromEntries(loaded.map(recording => [recording.id, recording])));
     }).catch(reason => setError(reason.message));
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    getLiveHealth().then(health => {
-      if (!active) return;
-      setLivePhase('ready');
-      setLiveNotice(health.jev?.ok === false ? 'Broadcaster online · Jev degraded' : 'Broadcaster online · ready for a fresh run');
-    }).catch(() => {
-      if (!active) return;
-      setLivePhase('offline');
-      setLiveNotice('Broadcaster offline · showing a recorded run');
-      setMode('recorded');
-    });
-    return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -78,8 +80,7 @@ export default function App() {
         if (failures >= 2 && active) {
           setPollLive(false);
           setLivePhase('offline');
-          setLiveNotice('Broadcaster offline · showing a recorded run');
-          setMode('recorded');
+          setLiveNotice(LIVE_SETUP_NOTICE);
         }
       } finally {
         inFlight = false;
@@ -121,17 +122,42 @@ export default function App() {
 
   useEffect(() => { setTime(0); setPlaying(false); }, [selected]);
 
-  const switchMode = (next: Mode) => {
+  const switchMode = async (next: Mode) => {
     setMode(next);
     setPlaying(false);
-    if (next === 'recorded') setPollLive(false);
-    if (next === 'live' && livePhase === 'offline') setLiveNotice('Press play to retry the broadcaster');
+    if (next === 'recorded') {
+      setPollLive(false);
+      return;
+    }
+    setPollLive(false);
+    setLiveSnapshot(null);
+    if (!LIVE_MODE_AVAILABLE) {
+      setLivePhase('offline');
+      setLiveNotice(LIVE_SETUP_NOTICE);
+      return;
+    }
+    setLivePhase('checking');
+    setLiveNotice('Checking the self-hosted broadcaster…');
+    try {
+      const health = await getLiveHealth();
+      setLivePhase('ready');
+      setLiveNotice(health.jev?.ok === false ? 'Broadcaster online · Jev degraded' : 'Broadcaster online · ready for a fresh run');
+    } catch {
+      setLivePhase('offline');
+      setLiveNotice(LIVE_SETUP_NOTICE);
+    }
   };
 
   const startLive = async () => {
     setMode('live');
     setPlaying(false);
     setLiveSnapshot(null);
+    if (!LIVE_MODE_AVAILABLE) {
+      setPollLive(false);
+      setLivePhase('offline');
+      setLiveNotice(LIVE_SETUP_NOTICE);
+      return;
+    }
     setLivePhase('connecting');
     setLiveNotice('Opening a fresh DOOM arena…');
     try {
@@ -140,8 +166,7 @@ export default function App() {
     } catch {
       setPollLive(false);
       setLivePhase('offline');
-      setLiveNotice('Broadcaster offline · showing a recorded run');
-      setMode('recorded');
+      setLiveNotice(LIVE_SETUP_NOTICE);
     }
   };
 
@@ -155,14 +180,17 @@ export default function App() {
   const scores = Object.entries(step?.motor?.scores ?? {}).sort((a, b) => b[1] - a[1]);
   const thinking = Object.entries(step?.jev?.probabilities ?? {}).sort((a, b) => b[1] - a[1]);
   const state = step?.state ?? {};
+  const recordedScenario = recordingScenario(recording);
+  const activeScenario = mode === 'live' ? (liveSnapshot?.scenario ?? scenario) : recordedScenario;
+  const goal = state.goal as {dist?: number; exit_dist_units?: number} | null | undefined;
   const choices = Object.entries(step?.jev?.choices ?? {});
   const usage = step?.jev?.usage;
   const questionConfidence = typeof step?.jev?.confidence === 'object' ? step.jev.confidence : {};
   const liveRunning = mode === 'live' && livePhase === 'playing';
   const activeController: ControllerMode = mode === 'live'
     ? (liveSnapshot?.controller ?? controller)
-    : (state.controller === 'brain' ? 'brain' : 'jev');
-  const jevBypassed = mode === 'live' && activeController === 'brain';
+    : (state.controller === 'brain' || recording?.header.controller === 'brain' ? 'brain' : 'jev');
+  const jevBypassed = activeController === 'brain';
   const neuronTotal = recording?.connectomeData?.count
     ?? recording?.header.connectome?.n_neurons
     ?? recording?.staticNeurons.length
@@ -181,8 +209,8 @@ export default function App() {
       <a className="logo" href="#"><BrainCircuit/><div><b>DOOM, PLAYED BY A FRUIT FLY CONNECTOME</b><small>{neuronTotal.toLocaleString()} neurons · MaleCNS v1.0 · synchronized game, brain and decisions</small></div></a>
       <div className="header-controls">
         <div className="mode-switch" aria-label="Experience mode">
-          <button className={mode === 'live' ? 'active' : ''} onClick={() => switchMode('live')}><Radio/> LIVE</button>
-          <button className={mode === 'recorded' ? 'active' : ''} onClick={() => switchMode('recorded')}><Database/> RECORDED</button>
+          <button className={mode === 'live' ? 'active' : ''} onClick={() => void switchMode('live')}><Radio/> LIVE</button>
+          <button className={mode === 'recorded' ? 'active' : ''} onClick={() => void switchMode('recorded')}><Database/> RECORDED</button>
         </div>
         {mode === 'recorded' && <div className="run-select"><Database/><select value={selected} onChange={event => setSelected(event.target.value)}>{catalog.map(item => <option value={item.id} key={item.id}>{item.title}</option>)}</select><ChevronDown/></div>}
         <div className="launch-controls">
@@ -198,12 +226,14 @@ export default function App() {
     <main>
       <section className="hero">
         <div className="game-side">
-          <div className="game-head"><span>DOOM · {mode === 'live' ? (liveSnapshot?.scenario ?? scenario).replaceAll('_', ' ').toUpperCase() : 'RECORDED'}</span><div><i/> {mode === 'live' ? liveNotice : 'SYNCED RECORDING'}</div></div>
+          <div className="game-head"><span>DOOM · {activeScenario ? activeScenario.replaceAll('_', ' ').toUpperCase() : 'RECORDED'}</span><div><i/> {mode === 'live' ? liveNotice : 'STATIC · SYNCED RECORDING'}</div></div>
           <DoomViewport recording={recording} step={step} mode={mode}
-            showMinimap={mode === 'live' && (liveSnapshot?.scenario ?? scenario) === 'e1m1'}
+            liveUnavailable={mode === 'live' && livePhase === 'offline'}
+            liveChecking={mode === 'live' && livePhase === 'checking'}
+            showMinimap={activeScenario === 'e1m1'}
             minimapX={state.position_x as number | undefined}
             minimapY={state.position_y as number | undefined}
-            goalDist={(state.goal as {dist?: number} | null | undefined)?.dist}/>
+            goalDist={goal?.dist ?? goal?.exit_dist_units}/>
           <div className="game-stats">
             <div><Heart/><span>HEALTH</span><b>{Number(state.health ?? 0).toFixed(0)}</b></div>
             <div><Zap/><span>AMMO</span><b>{Number(state.ammo ?? 0).toFixed(0)}</b></div>

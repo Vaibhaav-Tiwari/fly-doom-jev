@@ -1,9 +1,11 @@
 import type {ControllerMode, LiveSnapshot, Population, ReplayStep, ScalarMap} from './types';
 
 const configuredBase = import.meta.env.VITE_LIVE_API as string | undefined;
-export const LIVE_API_BASE = configuredBase ?? (import.meta.env.DEV ? '/live-api' : 'http://127.0.0.1:8420');
+export const LIVE_MODE_AVAILABLE = Boolean(configuredBase);
+export const LIVE_API_BASE = configuredBase ?? '';
 
 async function liveRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  if (!LIVE_MODE_AVAILABLE) throw new Error('Live mode is not configured');
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 2500);
   try {

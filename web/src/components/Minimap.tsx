@@ -13,7 +13,7 @@ let pending: Promise<MapData | null> | null = null;
 function loadMap(): Promise<MapData | null> {
   if (cache) return Promise.resolve(cache);
   if (!pending) {
-    pending = fetch('/e1m1-map.json')
+    pending = fetch(new URL('./e1m1-map.json', window.location.href))
       .then(response => response.ok ? response.json() as Promise<MapData> : null)
       .then(map => { cache = map; return map; })
       .catch(() => null);

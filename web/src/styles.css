@@ -183,6 +183,26 @@ main { width: 100%; padding: 10px 14px 14px; }
 .doom canvas { width: 100%; height: 100%; display: block; object-fit: cover; image-rendering: pixelated; }
 .scanlines { position: absolute; inset: 0; pointer-events: none; opacity: .35; background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(0,0,0,.12) 3px 4px); }
 .viewport-label, .crosshair, .doom-hud { display: none; }
+.live-setup {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  top: 50%;
+  width: min(430px, calc(100% - 36px));
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 22px 24px;
+  border: 1px solid #343a41;
+  background: rgba(9, 12, 16, .94);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .48);
+}
+.live-setup b { color: #e2e4e7; font-size: 15px; font-weight: 600; }
+.live-setup span { color: #8f969e; font: 10px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.live-setup a { color: #c2b5dc; font: 700 9px ui-monospace, SFMono-Regular, Menlo, monospace; text-decoration: none; }
+.live-setup a:hover { color: #ded6ec; text-decoration: underline; }
 .minimap {
   position: absolute;
   right: 14px;
@@ -362,20 +382,3 @@ main { width: 100%; padding: 10px 14px 14px; }
   .minimap { right: 8px; bottom: 8px; width: 42%; min-width: 0; padding: 6px; }
   .minimap-head { font-size: 5px; margin-bottom: 4px; }
 }
-
-.minimap {
-  margin-top: 10px;
-  padding: 10px 12px;
-  border: 1px solid rgba(126, 200, 255, 0.14);
-  border-radius: 10px;
-  background: rgba(8, 14, 20, 0.6);
-  max-width: 260px;
-}
-.minimap small {
-  display: block;
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  color: #7e94a6;
-  margin-bottom: 6px;
-}
-.minimap svg { display: block; }
