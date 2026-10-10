@@ -44,7 +44,8 @@ def load_recording(root: str | Path, run_id: str) -> dict:
     rec = Path(root) / run_id / "recording.jsonl"
     if not rec.exists():
         raise FileNotFoundError(run_id)
-    header, steps, frames_meta, summary = None, [], None, None
+    header, steps, frames_meta = None, [], None
+    summary, episode_end = None, None
     with open(rec) as f:
         for line in f:
             obj = json.loads(line)
@@ -53,13 +54,19 @@ def load_recording(root: str | Path, run_id: str) -> dict:
                 header = obj
             elif kind == "frames_meta":
                 frames_meta = obj
-            elif kind in ("summary", "episode_end"):
+            elif kind == "summary":
                 summary = obj
+            elif kind == "episode_end":
+                episode_end = obj
             elif kind == "step":
                 steps.append(obj)
     if header is None:
         raise ValueError(f"recording {run_id} has no header")
     if frames_meta and frames_meta.get("pattern"):
         frames_meta["url_pattern"] = f"/api/recordings/{run_id}/frames/" + "{:06d}.jpg"
+    # ``summary`` is the canonical replay summary. Keep it when older or
+    # mixed recordings also contain an ``episode_end`` row, regardless of
+    # their order in the file; otherwise the later row would win implicitly.
     return {"run_id": run_id, "header": header, "steps": steps,
-            "frames": frames_meta, "summary": summary}
+            "frames": frames_meta,
+            "summary": summary if summary is not None else episode_end}
