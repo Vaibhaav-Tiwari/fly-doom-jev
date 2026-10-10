@@ -46,8 +46,17 @@ def load_recording(root: str | Path, run_id: str) -> dict:
         raise FileNotFoundError(run_id)
     header, steps, frames_meta, summary = None, [], None, None
     with open(rec) as f:
-        for line in f:
-            obj = json.loads(line)
+        for line_no, line in enumerate(f, start=1):
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"recording {run_id} has malformed JSON on line {line_no}"
+                ) from exc
+            if not isinstance(obj, dict):
+                raise ValueError(
+                    f"recording {run_id} line {line_no} must be a JSON object"
+                )
             kind = obj.pop("kind", None)
             if kind == "header":
                 header = obj
@@ -59,7 +68,9 @@ def load_recording(root: str | Path, run_id: str) -> dict:
                 steps.append(obj)
     if header is None:
         raise ValueError(f"recording {run_id} has no header")
-    if frames_meta and frames_meta.get("pattern"):
+    if frames_meta is not None:
+        if not frames_meta.get("pattern"):
+            raise ValueError(f"recording {run_id} frames metadata has no pattern")
         frames_meta["url_pattern"] = f"/api/recordings/{run_id}/frames/" + "{:06d}.jpg"
     return {"run_id": run_id, "header": header, "steps": steps,
             "frames": frames_meta, "summary": summary}
