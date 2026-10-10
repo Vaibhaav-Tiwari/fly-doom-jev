@@ -1,3 +1,5 @@
+import pytest
+
 from flydoom.api.replay import list_recordings, load_recording
 from flydoom.telemetry import RecordingWriter
 
@@ -25,6 +27,29 @@ def test_recording_roundtrip(tmp_path):
 
 
 def test_load_missing_recording_raises(tmp_path):
-    import pytest
     with pytest.raises(FileNotFoundError):
         load_recording(tmp_path, "does-not-exist")
+
+
+def test_load_malformed_jsonl_row_raises_clear_error(tmp_path):
+    run = tmp_path / "malformed"
+    run.mkdir()
+    (run / "recording.jsonl").write_text(
+        '{"kind": "header", "recording_format_version": "2.2"}\n'
+        '{not-json}\n'
+    )
+
+    with pytest.raises(ValueError, match=r"malformed JSON on line 2"):
+        load_recording(tmp_path, "malformed")
+
+
+def test_load_frames_metadata_requires_pattern(tmp_path):
+    run = tmp_path / "missing-pattern"
+    run.mkdir()
+    (run / "recording.jsonl").write_text(
+        '{"kind": "header", "recording_format_version": "2.2"}\n'
+        '{"kind": "frames_meta", "count": 0, "codec": "jpeg"}\n'
+    )
+
+    with pytest.raises(ValueError, match="frames metadata has no pattern"):
+        load_recording(tmp_path, "missing-pattern")
