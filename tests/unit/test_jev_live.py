@@ -6,7 +6,9 @@ and loud failure on missing key, HTTP errors, and malformed answers.
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 
+from flydoom.api.live import LiveLoop, create_app
 from flydoom.jev.client import (DEFAULT_BASE_URL, DEFAULT_MODEL, JevAuthError,
                                 JevTransientError, LiveJevClient)
 from flydoom.jev.questions import QUESTION_BANK, SYSTEMONE_QUESTIONS
@@ -192,3 +194,23 @@ def test_subset_questions_and_memory_payload(live_client, monkeypatch, obs):
     assert sent["state"]["memory"] == memory               # memory in state
     assert set(d.probabilities) == {"ATTACK", "INTENT"}
     assert d.meta["choices"]["INTENT"] == "engage"  # first INTENT criterion
+
+
+def test_new_rejects_unknown_scenario_without_changing_current(fixture_cfg,
+                                                                monkeypatch):
+    monkeypatch.setattr(LiveLoop, "start", lambda self: None)
+    app, loop = create_app(fixture_cfg)
+    current_scenario = fixture_cfg["environment"]["scenario"]
+
+    response = TestClient(app).post(
+        "/new", json={"scenario": "not-a-live-scenario"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "error",
+        "error": ("unknown scenario 'not-a-live-scenario'; supported: "
+                   "['basic', 'deadly_corridor', 'defend_the_center', "
+                   "'defend_the_line', 'e1m1', 'fly_arena']"),
+    }
+    assert fixture_cfg["environment"]["scenario"] == current_scenario
+    assert loop._pending_scenario is None
