@@ -1,0 +1,39 @@
+You are implementing Tally run run-20261010-201255Z, task FDJ-3, attempt 2: Test POST /new rejects unknown live scenarios
+Neatlogs correlation: runId=run-20261010-201255Z taskId=FDJ-3 attempt=2.
+
+You are already inside your own AO git worktree for the target repo. Work only in the current working directory.
+Never read or write any other checkout or path outside this worktree; this worktree is the authoritative target repo.
+Commit your changes on your current branch, but do not push and do not open a pull request; Tally will publish the verified branch.
+Change only what this task needs. Do not add or edit CI, deployment, or tooling config unless the task explicitly asks for it. If a check outside your task fails, report it; do not fix it.
+
+Tally ID: FDJ-3
+Size: small
+
+The live API validates scenario names in `request_new_episode`, but there is no direct API-level test for a bad `POST /new` body. Add a small test around the FastAPI route or the loop method so an unknown scenario returns a clear error and leaves the current scenario unchanged.
+
+Pass check: .venv/bin/python -m pytest tests/unit/test_jev_live.py -q
+
+
+Target repo: Vaibhaav-Tiwari/fly-doom-jev
+The environment has already been set up before you started. Do not run setup (make setup), install dependencies, or use the network.
+Run this verification command before claiming success: make test
+You are running on tier middle (codex/gpt-5.6-terra).
+
+Handoff from the previous attempt:
+Continue from failed branch ao/fly-doom-jev-26/root.
+
+Metadata-only handoff; no generated summary or transcript export was requested.
+Checkpoint: 01M4KQ6FY5C33GHZ4EHGM4QTME; native session: 01a12772-a36b-7bf0-a37b-c2c76087d4f0.
+Branch: ao/fly-doom-jev-26/root.
+Checkpoint files: tests/unit/test_jev_live.py.
+Changed files: tests/unit/test_jev_live.py.
+Attempt verdict: stopped - ceiling crossed: $0.02 spent against a $0.01 ceiling; work in progress committed as bc7529d374e7135f6b07fede0b7965db6a5be9b1.
+Task FDJ-3: Test POST /new rejects unknown live scenarios
+Tally ID: FDJ-3
+Size: small
+
+The live API validates scenario names in `request_new_episode`, but there is no direct API-level test for a bad `POST /new` body. Add a small test around the FastAPI route or the loop method so an unknown scenario returns a clear error and leaves the current scenario unchanged.
+
+Pass check: .venv/bin/python -m pytest tests/unit/test_jev_live.py -q
+
+Inspect the branch changes and rerun the failed tests before continuing.
