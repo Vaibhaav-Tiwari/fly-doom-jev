@@ -1,0 +1,20 @@
+You are implementing Tally run run-20261010-201255Z, task FDJ-3, attempt 1: Test POST /new rejects unknown live scenarios
+Neatlogs correlation: runId=run-20261010-201255Z taskId=FDJ-3 attempt=1.
+
+You are already inside your own AO git worktree for the target repo. Work only in the current working directory.
+Never read or write any other checkout or path outside this worktree; this worktree is the authoritative target repo.
+Commit your changes on your current branch, but do not push and do not open a pull request; Tally will publish the verified branch.
+Change only what this task needs. Do not add or edit CI, deployment, or tooling config unless the task explicitly asks for it. If a check outside your task fails, report it; do not fix it.
+
+Tally ID: FDJ-3
+Size: small
+
+The live API validates scenario names in `request_new_episode`, but there is no direct API-level test for a bad `POST /new` body. Add a small test around the FastAPI route or the loop method so an unknown scenario returns a clear error and leaves the current scenario unchanged.
+
+Pass check: .venv/bin/python -m pytest tests/unit/test_jev_live.py -q
+
+
+Target repo: Vaibhaav-Tiwari/fly-doom-jev
+The environment has already been set up before you started. Do not run setup (make setup), install dependencies, or use the network.
+Run this verification command before claiming success: make test
+You are running on tier cheap (codex/gpt-5.6-luna).
