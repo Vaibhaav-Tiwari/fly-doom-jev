@@ -206,7 +206,14 @@ class DopaminePlasticity:
         return meta
 
     def load_checkpoint(self, path, cfg_sha: str) -> dict | None:
-        """Load a checkpoint iff provenance matches; else None (start fresh)."""
+        """Load a valid checkpoint iff provenance matches; else start fresh.
+
+        A checkpoint with ordinary graph/config provenance drift is expected
+        when a graph or plasticity configuration changes, so it deliberately
+        returns ``None``.  Damaged data and unsupported checkpoint layouts are
+        instead errors: silently discarding those would hide an operational
+        problem and make the original NumPy exception hard to diagnose.
+        """
         import json as _json
         from pathlib import Path
         path = Path(path)
@@ -214,23 +221,29 @@ class DopaminePlasticity:
             log.info("plasticity: no checkpoint at %s — starting fresh", path)
             return None
         try:
-            z = np.load(path, allow_pickle=False)
-            meta = _json.loads(str(z["meta"]))
+            with np.load(path, allow_pickle=False) as z:
+                meta = _json.loads(str(z["meta"]))
+                if not isinstance(meta, dict) or meta.get("format") != 1:
+                    raise ValueError("unsupported checkpoint metadata format")
+                w = np.asarray(z["w"], dtype=np.float64)
         except Exception as exc:
-            log.warning("plasticity: checkpoint %s unreadable (%s) — starting "
-                        "fresh", path, exc)
-            return None
+            raise ValueError(f"plasticity checkpoint {path} is corrupt or "
+                             f"incompatible: {exc}") from exc
         if meta.get("graph_sha") != self.graph_sha \
                 or meta.get("config_sha") != cfg_sha:
-            log.warning("plasticity: checkpoint provenance mismatch "
+            log.warning("plasticity: checkpoint provenance mismatch at %s "
                         "(graph %s vs %s, config %s vs %s) — starting fresh",
+                        path,
                         meta.get("graph_sha"), self.graph_sha,
                         meta.get("config_sha"), cfg_sha)
             return None
-        w = np.asarray(z["w"], dtype=np.float64)
         if w.shape != self.w.shape:
-            log.warning("plasticity: checkpoint edge count mismatch — fresh")
-            return None
+            raise ValueError(f"plasticity checkpoint {path} is incompatible: "
+                             f"weight shape {w.shape} does not match expected "
+                             f"{self.w.shape}")
+        if not np.isfinite(w).all():
+            raise ValueError(f"plasticity checkpoint {path} is corrupt: "
+                             "weights must be finite")
         self.w[:] = np.clip(w, 0.0, self.hi)
         self.weight[self.edges] = self.w
         self.checkpoint_id = meta.get("checkpoint_id")

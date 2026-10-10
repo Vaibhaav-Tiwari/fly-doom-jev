@@ -144,7 +144,7 @@ def test_shaped_reward_from_observation_deltas():
     assert shaped_reward(cfg, a, obs(0, 100.0), done=False) == 0.0
 
 
-def test_checkpoint_roundtrip_and_provenance(tmp_path):
+def test_checkpoint_roundtrip_and_provenance(tmp_path, caplog):
     from flydoom.neural.plasticity import plasticity_config_sha
     cfg_sha = plasticity_config_sha({"plasticity": CFG})
     p = make()
@@ -165,11 +165,36 @@ def test_checkpoint_roundtrip_and_provenance(tmp_path):
 
     # provenance mismatch -> start fresh, weights untouched
     other = make()
-    assert other.load_checkpoint(tmp_path / "checkpoint.npz",
-                                 "0" * 16) is None
+    checkpoint = tmp_path / "checkpoint.npz"
+    with caplog.at_level("WARNING"):
+        assert other.load_checkpoint(checkpoint, "0" * 16) is None
     assert np.allclose(other.w, other.w0)
+    assert "provenance mismatch" in caplog.text
+    assert str(checkpoint) in caplog.text
     # missing file -> fresh
     assert make().load_checkpoint(tmp_path / "nope.npz", cfg_sha) is None
+
+
+@pytest.mark.parametrize("contents, reason", [
+    (b"not an npz checkpoint", "corrupt or incompatible"),
+    (None, "weight shape"),
+])
+def test_corrupt_or_incompatible_checkpoint_is_actionable(tmp_path, contents,
+                                                           reason):
+    """Bad checkpoint data names its source instead of leaking NumPy errors."""
+    path = tmp_path / "broken-checkpoint.npz"
+    p = make()
+    if contents is None:
+        # Match provenance so shape validation is reached.
+        np.savez(path, w=np.ones(3, dtype=np.float32), meta=(
+            f'{{"format": 1, "graph_sha": "{p.graph_sha}", '
+            '"config_sha": "cfg"}'))
+    else:
+        path.write_bytes(contents)
+
+    with pytest.raises(ValueError, match=reason) as excinfo:
+        p.load_checkpoint(path, "cfg")
+    assert str(path) in str(excinfo.value)
 
 
 def test_shaped_reward_behavior_terms():
