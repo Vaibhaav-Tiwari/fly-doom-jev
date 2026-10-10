@@ -12,6 +12,14 @@ def _decision(probs, mi=None):
     return D()
 
 
+def _decision_without_choice_probabilities(probs):
+    class D:
+        probabilities = probs
+        meta = {}
+
+    return D()
+
+
 ACTIONS = ["forward", "backward", "turn_left", "turn_right", "attack", "noop"]
 
 
@@ -29,6 +37,18 @@ def test_weights_follow_probabilities():
     assert w["backward"] == 0.1
     assert w["turn_left"] == 0.5        # max(REPOSITION 0.4, MI.turn_left 0.5)
     assert w["noop"] == 1.0
+
+
+def test_weights_tolerate_missing_choice_probabilities():
+    d = _decision_without_choice_probabilities(
+        {"ATTACK": 0.9, "EXPLORE": 0.3, "RETREAT": 0.1,
+         "REPOSITION": 0.4, "MOVEMENT_INTENT": 0.8})
+    w = jev_action_weights(ACTIONS, d)
+    assert w["attack"] == 0.9
+    assert w["forward"] == 0.3
+    assert w["backward"] == 0.1
+    assert w["turn_left"] == 0.4
+    assert w["turn_right"] == 0.4
 
 
 def test_weighting_vetoes_and_reselects():

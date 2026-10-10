@@ -59,10 +59,14 @@ def jev_action_weights(actions: list[str], decision: JevDecision | None,
     if decision is None:
         return {a: 1.0 for a in actions}
     p = decision.probabilities
-    mi = (decision.meta.get("choice_probabilities") or {}).get(
+    # Choice distributions are optional (for example, subset decisions may
+    # only include scalar question probabilities). Keep scalar weighting
+    # unchanged when the distribution is absent.
+    meta = decision.meta or {}
+    mi = (meta.get("choice_probabilities") or {}).get(
         "MOVEMENT_INTENT") or {}
     biases = (intent_biases or INTENT_BIASES).get(
-        (decision.meta.get("choices") or {}).get("INTENT"), {})
+        (meta.get("choices") or {}).get("INTENT"), {})
 
     def w(action: str) -> float:
         if action == "attack":
