@@ -1,0 +1,20 @@
+You are implementing Tally run run-20261010-200904Z, task FDJ-5, attempt 1: Add action-weighting regression for missing MOVEMENT_INTENT metadata
+Neatlogs correlation: runId=run-20261010-200904Z taskId=FDJ-5 attempt=1.
+
+You are already inside your own AO git worktree for the target repo. Work only in the current working directory.
+Never read or write any other checkout or path outside this worktree; this worktree is the authoritative target repo.
+Commit your changes on your current branch, but do not push and do not open a pull request; Tally will publish the verified branch.
+Change only what this task needs. Do not add or edit CI, deployment, or tooling config unless the task explicitly asks for it. If a check outside your task fails, report it; do not fix it.
+
+Tally ID: FDJ-5
+Size: medium
+
+`jev_action_weights` reads optional movement-intent probabilities from decision metadata. Add coverage for decisions that have probabilities but no `choice_probabilities` key, and make the implementation tolerate that shape without changing the existing weighting semantics.
+
+Pass check: .venv/bin/python -m pytest tests/unit/test_weighting.py tests/unit/test_jev.py -q
+
+
+Target repo: Vaibhaav-Tiwari/fly-doom-jev
+The environment has already been set up before you started. Do not run setup (make setup), install dependencies, or use the network.
+Run this verification command before claiming success: make test
+You are running on tier cheap (codex/gpt-5.6-luna).
