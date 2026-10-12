@@ -368,6 +368,19 @@ endpoint reports costs; otherwise 0.0 / null.
 In the API JSON (`GET /api/recordings/<id>`), `frames.url_pattern` is added:
 `/api/recordings/<id>/frames/{:06d}.jpg`.
 
+### RecordingWriter frame API guarantees
+
+`RecordingWriter.add_frame` accepts only a nonempty NumPy array shaped `H x W x
+3`. The dtype must be `uint8` or floating-point. `uint8` values are preserved;
+finite floating-point values are clipped to `[0, 1]` and converted to `uint8`
+before JPEG encoding. NaN and infinite values, unsupported shapes, and other
+dtypes raise `ValueError`. `jpeg_quality` must be an integer from 1 through 95.
+
+Each JPEG is written to a temporary sibling and atomically renamed into place.
+If encoding or replacement fails, no temporary file is retained and the frame
+counter does not advance. After `close()`, all write methods (including
+`add_frame`) raise `RuntimeError`; calling `close()` again is harmless.
+
 ### footer (kind = "footer")
 
 ```json
