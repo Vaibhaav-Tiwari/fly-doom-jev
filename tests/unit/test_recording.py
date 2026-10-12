@@ -35,7 +35,7 @@ def test_load_missing_recording_raises(tmp_path):
 
 def test_float_frame_is_validated_converted_and_written(tmp_path):
     with RecordingWriter(tmp_path, run_id="float-run") as writer:
-        ref = writer.add_frame(np.array([[[0.0, 0.5, 1.0]]], dtype=np.float32))
+        ref = writer.add_frame(np.array([[[-0.5, 0.5, 1.5]]], dtype=np.float32))
         assert ref == "frames/000000.jpg"
 
     with Image.open(tmp_path / "float-run" / ref) as image:
@@ -43,24 +43,33 @@ def test_float_frame_is_validated_converted_and_written(tmp_path):
         assert np.allclose(np.asarray(image)[0, 0], [0, 128, 255], atol=3)
 
 
+def test_uint8_frame_values_are_written_without_normalization(tmp_path):
+    frame = np.full((4, 4, 3), [17, 127, 251], dtype=np.uint8)
+    with RecordingWriter(tmp_path, run_id="uint8-run", jpeg_quality=95) as writer:
+        ref = writer.add_frame(frame)
+
+    with Image.open(tmp_path / "uint8-run" / ref) as image:
+        assert np.allclose(np.asarray(image), frame, atol=1)
+
+
 @pytest.mark.parametrize("frame", [
+    [[0, 0, 0]],
     np.empty((0, 2, 3), dtype=np.uint8),
     np.zeros((2, 3), dtype=np.uint8),
     np.zeros((2, 3, 4), dtype=np.uint8),
     np.zeros((2, 3, 3), dtype=np.int16),
-    np.zeros((2, 3, 3), dtype=np.float32),
+    np.full((2, 3, 3), np.nan, dtype=np.float32),
+    np.full((2, 3, 3), np.inf, dtype=np.float64),
 ])
 def test_add_frame_rejects_invalid_frames(tmp_path, frame):
     writer = RecordingWriter(tmp_path, run_id="invalid-run")
-    if frame.dtype.kind == "f":
-        frame[0, 0, 0] = np.nan
     with pytest.raises(ValueError, match="RGB frame"):
         writer.add_frame(frame)
     writer.close()
 
 
 def test_jpeg_quality_is_limited(tmp_path):
-    for quality in (0, 96):
+    for quality in (0, 96, 80.0, True):
         with pytest.raises(ValueError, match="jpeg_quality"):
             RecordingWriter(tmp_path, run_id=f"quality-{quality}", jpeg_quality=quality)
 
@@ -77,6 +86,8 @@ def test_failed_frame_write_is_atomic_and_does_not_advance_counter(tmp_path, mon
         writer.add_frame(frame)
     assert writer._frame_count == 0
     assert list((tmp_path / "atomic-run" / "frames").iterdir()) == []
+    monkeypatch.undo()
+    assert writer.add_frame(frame) == "frames/000000.jpg"
     writer.close()
 
 
