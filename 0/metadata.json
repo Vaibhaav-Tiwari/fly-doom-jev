@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4QSR959PFQKSTWET7KZ387G",
+  "session_id": "01a12f99-9155-7973-ae0a-fccc9256f4c5",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-12T10:15:24.765499Z",
+  "branch": "ao/fly-doom-jev-30/root",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "tests/unit/test_recording.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-terra",
+  "turn_id": "f3ed9fcc71ae",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 29062,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 189440,
+    "output_tokens": 2774,
+    "api_call_count": 8
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-12T10:15:24.757431Z",
+    "agent_lines": 16,
+    "agent_removed": 5,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 16,
+    "total_lines_changed": 21,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

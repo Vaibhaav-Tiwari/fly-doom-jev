@@ -1,0 +1,29 @@
+Tally run-20261012-100856Z #15 a2: Validate recording frames and make frame writes failure-safe
+Neatlogs correlation: runId=run-20261012-100856Z taskId=#15 attempt=2.
+
+You are already inside your own AO git worktree for the target repo. Work only in the current working directory.
+Never read or write any other checkout or path outside this worktree; this worktree is the authoritative target repo.
+Commit your changes on your current branch, but do not push and do not open a pull request; Tally will publish the verified branch.
+Do not run ao commands. Tally handles session reporting and lifecycle; report your result in your final response only.
+Change only what this task needs. Do not add or edit CI, deployment, or tooling config unless the task explicitly asks for it. If a check outside your task fails, report it; do not fix it.
+
+Harden src/flydoom/telemetry/recorder.py, tests/unit/test_recording.py and docs/RECORDING_FORMAT.md only. RecordingWriter.add_frame currently assumes an RGB frame and writes JPEG directly. Require a nonempty HxWx3 numpy array, reject unsupported shapes/types with clear ValueError, clip finite float frames in [0,1] and convert to uint8, reject NaN/infinite inputs, preserve uint8 frames, and validate jpeg_quality in [1,95]. Save via a temporary sibling file and atomic replacement: failed JPEG writes must leave no corrupt destination or temporary file and must not advance the frame counter. After close, writing headers/steps/episodes/frames must raise a clear RuntimeError; close remains idempotent. Add tests for these cases and a successful float-frame roundtrip. Update the format document with the API guarantees. Start by adding a failing regression test before implementation, so partial progress is preserved if your budget stops the attempt. All tests must be synthetic and use tmp_path; no downloads, external API, network, installs, CI/deployment/config edits. Acceptance: make test passes and changes are limited to these three files. Tally will publish; do not push or merge yourself.
+
+Target repo: Vaibhaav-Tiwari/fly-doom-jev
+The environment has already been set up before you started. Do not run setup (make setup), install dependencies, or use the network.
+Run this verification command before claiming success: make test
+You are running on tier middle (codex/gpt-5.6-terra).
+
+Handoff from the previous attempt:
+Continue from failed branch ao/fly-doom-jev-30/root.
+
+Metadata-only handoff; no generated summary or transcript export was requested.
+Checkpoint: 01M4QSHQT5EVWM8MB1BJW6SDHT; native session: 01a12f96-b987-7bd3-8d78-b844980aac07.
+Branch: ao/fly-doom-jev-30/root.
+Checkpoint files: docs/RECORDING_FORMAT.md, src/flydoom/telemetry/recorder.py, tests/unit/test_recording.py.
+Changed files: docs/RECORDING_FORMAT.md, src/flydoom/telemetry/recorder.py, tests/unit/test_recording.py.
+Attempt verdict: stopped - ceiling crossed: $0.0196 spent against a $0.0180 ceiling; work in progress committed as 7adf1888f7b1a132a53d6eb5ea1482dbf19767c9.
+Task #15: Validate recording frames and make frame writes failure-safe
+Harden src/flydoom/telemetry/recorder.py, tests/unit/test_recording.py and docs/RECORDING_FORMAT.md only. RecordingWriter.add_frame currently assumes an RGB frame and writes JPEG directly. Require a nonempty HxWx3 numpy array, reject unsupported shapes/types with clear ValueError, clip finite float frames in [0,1] and convert to uint8, reject NaN/infinite inputs, preserve uint8 frames, and validate jpeg_quality in [1,95]. Save via a temporary sibling file and atomic replacement: failed JPEG writes must leave no corrupt destination or temporary file and must not advance the frame counter. After close, writing headers/steps/episodes/frames must raise a clear RuntimeError; close remains idempotent. Add tests for these cases and a successful float-frame roundtrip. Update the format document with the API guarantees. Start by adding a failing regression test before implementation, so partial progress is preserved if your budget stops the attempt. All tests must be synthetic and use tmp_path; no downloads, external API, network, installs, CI/deployment/config edits. Acceptance: make test passes and changes are limited to these three files. Tally will publish; do not push or merge yourself.
+Inspect the branch changes and rerun the failed tests before continuing.
+Preserve all inherited commits, including Tally work-in-progress commits. Add a new commit for your changes; do not amend, squash, reset, or rebase the inherited history.
